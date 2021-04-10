@@ -1,4 +1,5 @@
 *
 !.gitignore
 !Makefile
-!mmu.c
+!*.c
+!README.md
