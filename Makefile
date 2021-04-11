@@ -1,5 +1,4 @@
-mmu: mmu.c
-	gcc -g -Wall mmu.c -o mmu
-
+mmu: mmu.cpp
+	g++ -g -Wall mmu.cpp -o mmu
 clean:
 	rm -rf mmu *~
