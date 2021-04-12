@@ -11,8 +11,8 @@
 using namespace std;
 
 //Constants
-const int MAX_VPAGES = 64;
-const int MAX_FRAMES = 128;
+const int MAX_VPAGES = 64; //Total virtual pages per process
+const int MAX_FRAMES = 128; //Supports up to 128 total possible physical frames
 
 //Flags
 char algo; //-a
@@ -144,6 +144,8 @@ int main(int argc, char* argv[]) {
     int nProcs, nVAM, start_vpage, end_vpage, write_protected, file_mapped, instNum;
     char inst;
     string line;
+
+    nProcs = 0;
     while(getline(ifile, line)){
         if (line.empty() || line[0] == '#') {
             continue; //Ignoring empty and # lines
@@ -152,8 +154,12 @@ int main(int argc, char* argv[]) {
         iss >> nProcs; //number of procs
         break;
     }
-    printf("nProc[%d]\n",nProcs);
-
+    // printf("nProc[%d]\n",nProcs);
+    if (nProcs == 0) {
+        cerr << "No processes read in input file.\n";
+        exit(1);
+    }
+    
     int i = 0;
     while (i < nProcs){
         getline(ifile, line);
@@ -161,8 +167,8 @@ int main(int argc, char* argv[]) {
             continue;
         }
         istringstream iss(line);
-        iss >> nVAM; //Get VAM number
-        printf("nVAM[%d]\n",nVAM);
+        iss >> nVAM; //number of VAM
+        // printf("nVAM[%d]\n",nVAM);
         int j = 0;
         while (j < nVAM) {
             getline(ifile, line);
@@ -170,18 +176,18 @@ int main(int argc, char* argv[]) {
                 continue;
             }
             istringstream iss(line);
-            iss >> start_vpage >> end_vpage >> write_protected >> file_mapped;
-            printf("start[%d] end[%d] write_p[%d] file_mapped[%d]\n",start_vpage,end_vpage,write_protected,file_mapped);
+            iss >> start_vpage >> end_vpage >> write_protected >> file_mapped; //VAMs
+            // printf("start[%d] end[%d] write_p[%d] file_mapped[%d]\n",start_vpage,end_vpage,write_protected,file_mapped);
             j++;
         }
         i++;
     }  
-    while(getline(ifile, line)){ //Instructions
+    while(getline(ifile, line)){ //Get Instructions
         if (line.empty() || line[0] == '#') {
             continue;
         }
         istringstream iss(line);
-        iss >> inst >> instNum; //Get instructions
+        iss >> inst >> instNum;
         // printf("inst[%c] instNum[%d]\n", inst, instNum);
     }
 
