@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <getopt.h> //Arg parsing
 #include <stdlib.h>
-#include <deque>
+#include <queue>
 
 using namespace std;
 
@@ -27,18 +27,80 @@ int fFlag = 0;
 int aFlag = 0;
 
 //Macro definitions
-#define vtrace(fmt...)  do { if (vFlag) { printf(fmt); fflush(stdout); } } while(0)
+// #define vtrace(fmt...)  do { if (vFlag) { printf(fmt); fflush(stdout); } } while(0)
 
-//Enum definitions
-
-//Struct definitions
-// typedef struct {
+//Structs
+struct pte_t{ //Page table entries - must be 32 bits
+    pte_t(): valid(0),referenced(0), modified(0), writeProtected(0), 
+        pagedOut(0), frame(0), unused(0){}
     
-// } pte_t; //Page table entries - must be 32 bits
+    void printPTE(){
+        printf("valid[%d] ref[%d] mod[%d] writeP[%d] pageO[%d] frame[%d] unused[%d]\n",
+            valid, referenced, modified, writeProtected, pagedOut, frame, unused);
+    }
+    unsigned valid:1;
+    unsigned referenced:1;
+    unsigned modified:1;
+    unsigned writeProtected:1;
+    unsigned pagedOut:1;
+    unsigned frame:7; //Max 128 = 7 bits
+    unsigned unused:20;
+}; 
 
-// typedef struct {
+struct frame_t { //Frames
+    frame_t(): pid(-1), mappedTo(){}
+    void printFrame(){
+        printf("Mapped to PID[%d]\t",pid);
+        mappedTo.printPTE();
+    }
+    int pid; //Which process do I map to?
+    pte_t mappedTo; //Which virtual addres do I map to?
+}; 
 
-// } frame_t; //Frames - must be 32 bits
+struct virtualMemoryArea { //VMA
+    virtualMemoryArea(int s, int e, bool w, bool f):
+        start_vpage(s), end_vpage(e), write_protected(w), file_mapped(f){}
+    void printVMA(){
+        printf("start[%d] end[%d] write_pro[%d] file_map[%d]\n", start_vpage,end_vpage, write_protected, file_mapped);
+    }
+    int start_vpage;
+    int end_vpage;
+    bool write_protected;
+    bool file_mapped;
+};
+
+struct process {
+    static int count;
+    process(): pid(count++), VAMList(){
+        for (int i = 0; i < MAX_VPAGES; i++){
+            page_table[i] = pte_t();
+        }
+    }
+
+    void printProcess(){
+        printf("======PID: %d\n",pid);
+        printf("VAM List\n");
+        for (size_t i = 0; i < VAMList.size(); i++){
+            VAMList[i].printVMA();
+        }
+        // printf("PTEs\n");
+        // for (int i = 0; i < MAX_VPAGES; i++){
+        //     if (sizeof(page_table[i]) != 4){
+        //         page_table[i].printPTE();
+        //     }
+        // }
+    }
+    int pid;
+    vector<virtualMemoryArea> VAMList;
+    pte_t page_table[MAX_VPAGES];
+};
+int process::count = 0; //Init the static count for pid
+
+struct frames {
+    frames(int num_frames){}
+    frame_t frame_table[MAX_FRAMES]; //All the frames
+    queue<frame_t> free_pool; //Free pool
+};
 
 //Class definitions
 // class Pager {
@@ -50,7 +112,6 @@ int aFlag = 0;
 //         return frame;
 // }
 // pte_t page_table[MAX_VPAGES]; // a per process array of fixed size=64 of pte_t not pte_t pointers !
-// frame_t frame_table[MAX_FRAMES]; //All the frames
 
 //Global var
 vector<int> randvals; //Vector containg the random integers
@@ -161,11 +222,16 @@ int main(int argc, char* argv[]) {
     }
     
     int i = 0;
+    vector<process*> procList; //Holding all procs
     while (i < nProcs){
         getline(ifile, line);
         if (line.empty() || line[0] == '#') {
             continue;
         }
+
+        process* temp = new process(); //Creating a process
+        procList.push_back(temp); //Adding process to list
+
         istringstream iss(line);
         iss >> nVAM; //number of VAM
         // printf("nVAM[%d]\n",nVAM);
@@ -177,11 +243,18 @@ int main(int argc, char* argv[]) {
             }
             istringstream iss(line);
             iss >> start_vpage >> end_vpage >> write_protected >> file_mapped; //VAMs
+            virtualMemoryArea aVAM = virtualMemoryArea(start_vpage, end_vpage, write_protected, file_mapped);
+            temp->VAMList.push_back(aVAM); //Adding VAM to proc
             // printf("start[%d] end[%d] write_p[%d] file_mapped[%d]\n",start_vpage,end_vpage,write_protected,file_mapped);
             j++;
         }
         i++;
     }  
+    //Print Process List
+    for(size_t i = 0; i < procList.size(); i++){
+        procList[i]->printProcess();
+    }
+
     while(getline(ifile, line)){ //Get Instructions
         if (line.empty() || line[0] == '#') {
             continue;
@@ -191,8 +264,11 @@ int main(int argc, char* argv[]) {
         // printf("inst[%c] instNum[%d]\n", inst, instNum);
     }
 
-
+    //Clean up
     ifile.close();
+    for(size_t i = 0; i < procList.size(); i++){
+        delete procList[i];
+    }
 }
 
 //The random function
@@ -201,7 +277,7 @@ int myrandom(int burst) {
     if (ofs >= randvals.size()) {
         ofs = 0;
     }
-    return 1 + (randvals[ofs++] % burst);
+    return randvals[ofs++] % burst;
 }
 
 void simulation(){
