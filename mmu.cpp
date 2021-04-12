@@ -9,19 +9,47 @@
 
 using namespace std;
 
-//Flags
+//Constants
+const int MAX_VPAGES = 64;
+const int MAX_FRAMES = 128;
 
+//Flags
+char algo; //-a
+int num_frames; //-f
+int OFlag = 0; //-o
+int PFlag = 0;
+int FFlag = 0;
+int SFlag = 0;
+int xFlag = 0;
+int yFlag = 0;
+int fFlag = 0;
+int aFlag = 0;
 
 //Macro definitions
+#define vtrace(fmt...)  do { if (vFlag) { printf(fmt); fflush(stdout); } } while(0)
 
 //Enum definitions
 
-
-
 //Struct definitions
+typedef struct {
+    
+} pte_t; //Page table entries - must be 32 bits
+
+typedef struct {
+
+} frame_t; //Frames - must be 32 bits
 
 //Class definitions
-
+class Pager {
+    virtual frame_t* select_victim_frame() = 0; // virtual base class
+};
+frame_t* get_frame() {
+    frame_t *frame = allocate_frame_from_free_list();
+    if (frame == NULL) frame = THE_PAGER->select_victim_frame();
+        return frame;
+}
+pte_t page_table[MAX_VPAGES]; // a per process array of fixed size=64 of pte_t not pte_t pointers !
+frame_t frame_table[MAX_FRAMES]; //All the frames
 
 //Global var
 vector<int> randvals; //Vector containg the random integers
@@ -29,23 +57,8 @@ vector<int> randvals; //Vector containg the random integers
 //Function prototypes
 int myrandom(int); //The random function
 void simulation(); //Simulation
-
 int main(int argc, char* argv[]) {
     int c;
-    //-f
-    int num_frames;
-    //-a
-    char algo;
-    //-o
-    int OFlag = 0;
-    int PFlag = 0;
-    int FFlag = 0;
-    int SFlag = 0;
-    int xFlag = 0;
-    int yFlag = 0;
-    int fFlag = 0;
-    int aFlag = 0;
-
     while ((c = getopt(argc,argv,"f:a:o:")) != -1 )
     {   
         // ./mmu –f<num_frames> -a<algo> [-o<options>] -x -y -f -a inputfile randomfile
@@ -55,6 +68,10 @@ int main(int argc, char* argv[]) {
         switch(c) {
             case 'f':
                 sscanf(optarg, "%d",&num_frames);
+                if (num_frames >= MAX_FRAMES) {
+                    cerr << "num_frames >= 128: " << num_frames << endl;;
+                    exit(1);
+                }
                 break;
             case 'a': 
                 sscanf(optarg, "%c",&algo);
@@ -141,31 +158,22 @@ int myrandom(int burst) {
 
 void simulation(){
 
+    while (get_next_instruction(&operation, &vpage)) {
+        // handle special case of “c” and “e” instruction
+        // now the real instructions for read and write
+        pte_t *pte = &current_process.page_table[vpage];// in reality this is done by hardware
+        if ( ! pte->present) {
+            // this in reality generates the page fault exception and now you execute // verify this is actually a valid page in a vma if not raise error and next inst
+            frame_t *newframe = get_frame();
+            //-> figure out if/what to do with old frame if it was mapped
+            // see general outline in MM-slides under Lab3 header
+            // see whether and how to bring in the content of the access page.
+        }
+        // check write protection
+        // simulate instruction execution by hardware by updating the R/M PTE bits update_pte(read/modify) bits based on operations.
+    }
 }
 
 
 
-// typedef struct { ... } pte_t; // can only be total of 32-bit size and will check on this typedef struct { ... } frame_t;
-// frame_t frame_table[MAX_FRAMES];
-// pte_t page_table[MAX_VPAGES]; // a per process array of fixed size=64 of pte_t not pte_t pointers !
-// class Pager {
-// virtual frame_t* select_victim_frame() = 0; // virtual base class
-// };
-// frame_t *get_frame() {
-// frame_t *frame = allocate_frame_from_free_list();
-// if (frame == NULL) frame = THE_PAGER->select_victim_frame();
-//        return frame;
-// }
-// while (get_next_instruction(&operation, &vpage)) {
-// // handle special case of “c” and “e” instruction
-// // now the real instructions for read and write
-// pte_t *pte = &current_process.page_table[vpage];// in reality this is done by hardware if ( ! pte->present) {
-// // this in reality generates the page fault exception and now you execute // verify this is actually a valid page in a vma if not raise error and next inst
-// frame_t *newframe = get_frame();
-// //-> figure out if/what to do with old frame if it was mapped
-// // see general outline in MM-slides under Lab3 header
-// // see whether and how to bring in the content of the access page.
-// }
-// // check write protection
-// // simulate instruction execution by hardware by updating the R/M PTE bits update_pte(read/modify) bits based on operations.
-//     }
+
