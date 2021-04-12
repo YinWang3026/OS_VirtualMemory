@@ -27,51 +27,75 @@ using namespace std;
 vector<int> randvals; //Vector containg the random integers
 
 //Function prototypes
-
+int myrandom(int); //The random function
+void simulation(); //Simulation
 
 int main(int argc, char* argv[]) {
     int c;
+    //-f
     int num_frames;
+    //-a
     char algo;
+    //-o
+    int OFlag = 0;
+    int PFlag = 0;
+    int FFlag = 0;
+    int SFlag = 0;
+    int xFlag = 0;
+    int yFlag = 0;
+    int fFlag = 0;
+    int aFlag = 0;
+
     while ((c = getopt(argc,argv,"f:a:o:")) != -1 )
     {   
-        // ./mmu –f<num_frames> -a<algo> [-o<options>] inputfile randomfile
+        // ./mmu –f<num_frames> -a<algo> [-o<options>] -x -y -f -a inputfile randomfile
         // options = OPFS
         // S has more options -x-y-f-a
         //Argument parsing
         switch(c) {
-        case 'f':
-            sscanf(optarg, "%d",&num_frames);
-            cout << "num_frames: " << num_frames << endl; 
-            break;
-        case 'a': 
-            sscanf(optarg, "%c",&algo);
-            cout << "algo: " << algo << endl; 
-            break;
-        case 'o':
-            char options;
-            sscanf(optarg, "%c",&options);
-            switch (options) {
-                case 'O':
-                    cout << "option: " << options << endl; 
-                    break;
-                case 'P':
-                    cout << "option: " << options << endl; 
-                    break;
-                case 'F':
-                    cout << "option: " << options << endl; 
-                    break;
-                case 'S':
-                    cout << "option: " << options << endl;
-                    break;
-            }
-            break;
-        }
+            case 'f':
+                sscanf(optarg, "%d",&num_frames);
+                break;
+            case 'a': 
+                sscanf(optarg, "%c",&algo);
+                break;
+            case 'o':
+                int i = 0;
+                while (optarg[i] != '\0'){
+                    // printf("O: %c\n", optarg[i]);
+                    switch (optarg[i]) {
+                        case 'O':
+                            OFlag = 1;
+                            break;
+                        case 'P':
+                            PFlag = 1;
+                            break;
+                        case 'F':
+                            FFlag = 1;
+                            break;
+                        case 'S':
+                            SFlag = 1;
+                            break;
+                        case 'x':
+                            xFlag = 1;
+                            break;
+                        case 'y':
+                            yFlag = 1;
+                            break;
+                        case 'f':
+                            fFlag = 1;
+                            break;
+                        case 'a':
+                            aFlag = 1;
+                            break;
+                    }
+                    i++;
+                }
+                break;
+        }        
     }
-    //Debug statements, invoked using -v flag
-    // vtrace("vflag = %d  tflag = %d eflag = %d\n",vFlag,tFlag,eFlag);
-    // vtrace("Scheduler: %s, quantum: %d, maxprio: %d\n",myScheduler->getSchedName().c_str(),
-    //     myScheduler->getQuantum(),myScheduler->getMaxprio());
+    //Arguments statements
+    printf("frames[%d] algo[%c] O[%d] P[%d] F[%d] S[%d] x[%d] y[%d] f[%d] a[%d]\n", num_frames, algo, OFlag, PFlag, FFlag, SFlag, xFlag, yFlag, fFlag, aFlag);
 
     if ((argc - optind) < 2) { //optind is the index of current argument
         cerr << "Missing input file and rfile\n";
@@ -113,6 +137,10 @@ int myrandom(int burst) {
         ofs = 0;
     }
     return 1 + (randvals[ofs++] % burst);
+}
+
+void simulation(){
+
 }
 
 
