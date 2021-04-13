@@ -30,8 +30,8 @@ int aFlag = 0;
 // #define vtrace(fmt...)  do { if (vFlag) { printf(fmt); fflush(stdout); } } while(0)
 
 //Structs
-struct pte_t{ //Page table entries - must be 32 bits
-    pte_t(): valid(0),referenced(0), modified(0), writeProtected(0), 
+struct pte{ //Page table entries - must be 32 bits
+    pte(): valid(0),referenced(0), modified(0), writeProtected(0), 
         pagedOut(0), frame(0), unused(0){}
     
     void printPTE(){
@@ -47,15 +47,18 @@ struct pte_t{ //Page table entries - must be 32 bits
     unsigned unused:20;
 }; 
 
-struct frame_t { //Frames
-    frame_t(): pid(-1), mappedTo(){}
+struct frame { //Frame
+    static int count;
+    frame(): frameid(count++), pid(-1){}
     void printFrame(){
         printf("Mapped to PID[%d]\t",pid);
         mappedTo.printPTE();
     }
+    int frameid; //id of this frame
     int pid; //Which process do I map to?
-    pte_t mappedTo; //Which virtual addres do I map to?
+    pte mappedTo; //Which virtual addres do I map to?
 }; 
+int frame::count = 0;
 
 struct virtualMemoryArea { //VMA
     virtualMemoryArea(int s, int e, bool w, bool f):
@@ -69,14 +72,13 @@ struct virtualMemoryArea { //VMA
     bool file_mapped;
 };
 
-struct process {
+struct process { //procs
     static int count;
-    process(): pid(count++), VAMList(){
+    process(): pid(count++){
         for (int i = 0; i < MAX_VPAGES; i++){
-            page_table[i] = pte_t();
+            page_table[i] = pte();
         }
     }
-
     void printProcess(){
         printf("======PID: %d\n",pid);
         printf("VAM List\n");
@@ -90,28 +92,39 @@ struct process {
         //     }
         // }
     }
-    int pid;
-    vector<virtualMemoryArea> VAMList;
-    pte_t page_table[MAX_VPAGES];
+    int pid; //id
+    vector<virtualMemoryArea> VAMList; //virtual memory segments
+    pte page_table[MAX_VPAGES]; // a per process array of fixed size=64 of pte_t not pte_t pointers !
 };
 int process::count = 0; //Init the static count for pid
 
 struct frames {
-    frames(int num_frames){}
-    frame_t frame_table[MAX_FRAMES]; //All the frames
-    queue<frame_t> free_pool; //Free pool
+    frames(int num_frames){
+        for(int i = 0; i < num_frames; i++){
+            frame* f = new frame();
+            frame_table.push_back(f); //Add to total frame
+            free_pool.push(f); //All initalized frame is free
+        }
+    }
+    ~frames(){ //Clean up
+        for(int i = 0; i < num_frames; i++){
+            delete frame_table[i];
+        }
+    }
+    vector<frame*> frame_table; //All the frames
+    queue<frame*> free_pool; //Free pool
 };
 
-//Class definitions
-// class Pager {
-//     virtual frame_t* select_victim_frame() = 0; // virtual base class
-// };
-// frame_t* get_frame() {
-//     frame_t *frame = allocate_frame_from_free_list();
+// Class definitions
+class Pager {
+    virtual frame* select_victim_frame() = 0; // virtual base class
+};
+
+// frame* get_frame() {
+//     frame *frame = allocate_frame_from_free_list();
 //     if (frame == NULL) frame = THE_PAGER->select_victim_frame();
 //         return frame;
 // }
-// pte_t page_table[MAX_VPAGES]; // a per process array of fixed size=64 of pte_t not pte_t pointers !
 
 //Global var
 vector<int> randvals; //Vector containg the random integers
