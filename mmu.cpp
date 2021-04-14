@@ -7,16 +7,16 @@
 #include <getopt.h> //Arg parsing
 #include <stdlib.h>
 #include <queue>
+#include <limits.h> //INT_MAX
 
 using namespace std;
 
-//Constants
+//Global Constants
 const int MAX_VPAGES = 64; //Total virtual pages per process
 const int MAX_FRAMES = 128; //Supports up to 128 total possible physical frames
 
 //Flags
-char algo; //-a
-int OFlag = 0; //-o
+int OFlag = 0;
 int PFlag = 0;
 int FFlag = 0;
 int SFlag = 0;
@@ -31,31 +31,51 @@ int aFlag = 0;
 //Structs
 struct pte{ //Page table entries - must be 32 bits
     pte(): valid(0),referenced(0), modified(0), writeProtected(0), 
-        pagedOut(0), frame(0), unused(0){}
+        pagedOut(0), frame(0), pte_id(0), file_mapped(0), frame_mapped(0), unused(0){}
     
     void printPTE(){
-        printf("valid[%d] ref[%d] mod[%d] writeP[%d] pageO[%d] frame[%d] unused[%d]\n",
-            valid, referenced, modified, writeProtected, pagedOut, frame, unused);
+        string s = "";
+        if (valid == 1){
+            s += to_string(pte_id) + ":";
+            if (referenced) { s+= "R"; } else { s+= "-"; }
+            if (modified) { s+= "M"; } else { s+= "-"; }
+            if (pagedOut) { s+= "S"; } else { s+= "-"; }
+        } else{
+            if (pagedOut) { s+= "#"; } //Invalid, swapped out
+            else { s+="*"; } //Invalid, not swap out
+        }
+        s += " ";
+    }
+
+    void setID(int n){
+        if (n < 64){ //Max is 64
+            pte_id = n;
+        }
     }
     unsigned valid:1;
     unsigned referenced:1;
     unsigned modified:1;
     unsigned writeProtected:1;
-    unsigned pagedOut:1;
+    unsigned pagedOut:1; //aka swapped out
     unsigned frame:7; //Max 128 = 7 bits
-    unsigned unused:20;
+    unsigned pte_id:6; //Max 64 = 6 bits
+    unsigned file_mapped:1;
+    unsigned frame_mapped:1;
+    // unsigned swap_area:9; //Max process = 8, 8*64 = 512 virtual pages total, 2^9 = 512
+    unsigned unused:12;
 }; 
 
+//Need fix
 struct frame { //Frame
     static int count;
-    frame(): frameid(count++), pid(-1){}
+    frame(): frameid(count++), pid(-1), mappedBy(INT_MAX) {}
     void printFrame(){
-        printf("Mapped to PID[%d]\t",pid);
-        mappedTo.printPTE();
+        //<pid:virtual page>
+        //* if not currently mapped by a virtual page
     }
     int frameid; //id of this frame
     int pid; //Which process do I map to?
-    pte mappedTo; //Which virtual addres do I map to?
+    pte mappedBy; //Which virtual addres do I map to?
 }; 
 int frame::count = 0;
 
@@ -75,21 +95,15 @@ struct process { //procs
     static int count;
     process(): pid(count++){
         for (int i = 0; i < MAX_VPAGES; i++){
-            page_table[i] = pte();
+            page_table[i].setID(i);
         }
     }
-    void printProcess(){
-        printf("======PID: %d\n",pid);
-        printf("VAM List\n");
-        for (size_t i = 0; i < VAMList.size(); i++){
-            VAMList[i].printVMA();
+    void printProcessPageTable(){
+        printf("PT[%d]: ",pid);
+        for (int i = 0; i < MAX_VPAGES; i++){
+            page_table[i].printPTE();
         }
-        // printf("PTEs\n");
-        // for (int i = 0; i < MAX_VPAGES; i++){
-        //     if (sizeof(page_table[i]) != 4){
-        //         page_table[i].printPTE();
-        //     }
-        // }
+        printf("\n");
     }
     int pid; //id
     vector<virtualMemoryArea> VAMList; //virtual memory segments
@@ -112,7 +126,10 @@ struct aLotOfFrames {
     }
     void printFT(){
         printf("FT: ");
-
+        for (int i = 0; i < n; i++){
+            frame_table[i]->printFrame();
+        }
+        printf("\n");
     }
     vector<frame*> frame_table; //All the frames
     queue<frame*> free_pool; //Free pool
@@ -167,6 +184,7 @@ void simulation(); //Simulation
 int main(int argc, char* argv[]) {
     int c;
     aLotOfFrames* myFrames; //Pointer to my frames
+    Pager* myPager; //Pointer to the pager algorithm
     while ((c = getopt(argc,argv,"f:a:o:")) != -1 )
     {   
         // ./mmu –f<num_frames> -a<algo> [-o<options>] -x -y -f -a inputfile randomfile
@@ -183,22 +201,40 @@ int main(int argc, char* argv[]) {
                 myFrames = new aLotOfFrames(num_frames);
                 break;
             case 'a': 
+                char algo;
                 sscanf(optarg, "%c",&algo);
+                switch (algo) {
+                    case 'F':
+                        break;
+                    case 'R':
+                        break;
+                    case 'C':
+                        break;
+                    case 'E':
+                        break;
+                    case 'A':
+                        break;
+                    case 'W':
+                        break;
+                    default:
+                        cerr << "Unknown algo." << endl;
+                        exit(1);
+                }
                 break;
             case 'o':
                 for (int i = 0; optarg[i] != '\0'; i++){
                     // printf("O: %c\n", optarg[i]);
                     switch (optarg[i]) {
-                        case 'O':
+                        case 'O': //Output
                             OFlag = 1;
                             break;
-                        case 'P':
+                        case 'P': //Print proc
                             PFlag = 1;
                             break;
-                        case 'F':
+                        case 'F': //Print Frame table
                             FFlag = 1;
                             break;
-                        case 'S':
+                        case 'S': //Print summary
                             SFlag = 1;
                             break;
                         case 'x': //Prints the current page table after each instruction
@@ -291,9 +327,9 @@ int main(int argc, char* argv[]) {
         i++;
     }  
     //Print Process List
-    for(size_t i = 0; i < procList.size(); i++){
-        procList[i]->printProcess();
-    }
+    // for(size_t i = 0; i < procList.size(); i++){
+    //     procList[i]->printProcess();
+    // }
 
     int instCount = 1;
     while(getline(ifile, line)){ //Get Instructions
@@ -325,6 +361,7 @@ int main(int argc, char* argv[]) {
         delete procList[i];
     }
     delete myFrames;
+    delete myPager;
 }
 
 
