@@ -45,8 +45,8 @@ struct pte{ //Page table entries - must be 32 bits
             else { s+="*"; } //Invalid, not swap out
         }
         s += " ";
+        printf("%c", s.c_str());
     }
-
     void setID(int n){
         if (n < 64){ //Max is 64
             pte_id = n;
@@ -68,14 +68,19 @@ struct pte{ //Page table entries - must be 32 bits
 //Need fix
 struct frame { //Frame
     static int count;
-    frame(): frameid(count++), pid(-1), mappedBy(INT_MAX) {}
+    frame(): frameid(count++), pid(-1), pte_id(0) {}
     void printFrame(){
         //<pid:virtual page>
         //* if not currently mapped by a virtual page
+        if (pid == -1){
+            printf("* ");
+        } else{
+            printf("%d:%d ", pid, pte_id);
+        }
     }
     int frameid; //id of this frame
     int pid; //Which process do I map to?
-    pte mappedBy; //Which virtual addres do I map to?
+    unsigned pte_id:6; //Which virtual addres do I map to?
 }; 
 int frame::count = 0;
 
@@ -85,18 +90,33 @@ struct virtualMemoryArea { //VMA
     void printVMA(){
         printf("start[%d] end[%d] write_pro[%d] file_map[%d]\n", start_vpage,end_vpage, write_protected, file_mapped);
     }
-    int start_vpage;
-    int end_vpage;
-    bool write_protected;
-    bool file_mapped;
+    bool checkRange(int x){
+        if (start_vpage <= x && x <= end_vpage){
+            return true;
+        } else {
+            return false;
+        }
+    }
+    bool getProtected(){
+        return write_protected;
+    }
+    bool getFileMapped(){
+        return file_mapped;
+    }
+    private:
+        int start_vpage;
+        int end_vpage;
+        bool write_protected;
+        bool file_mapped;
 };
 
-struct process { //procs
+struct process {
     static int count;
-    process(): pid(count++){
-        for (int i = 0; i < MAX_VPAGES; i++){
-            page_table[i].setID(i);
-        }
+    process(): pid(count++), unmaps(0), maps(0), ins(0), outs(0), 
+        fins(0), fouts(0), zeros(0), segv(0), segprot(0){
+        // for (int i = 0; i < MAX_VPAGES; i++){
+        //     page_table[i].setID(i);
+        // }
     }
     void printProcessPageTable(){
         printf("PT[%d]: ",pid);
@@ -105,7 +125,7 @@ struct process { //procs
         }
         printf("\n");
     }
-    int pid; //id
+    int pid, unmaps, maps, ins, outs, fins, fouts, zeros, segv, segprot;
     vector<virtualMemoryArea> VAMList; //virtual memory segments
     pte page_table[MAX_VPAGES]; // a per process array of fixed size=64 of pte_t not pte_t pointers !
 };
@@ -131,9 +151,18 @@ struct aLotOfFrames {
         }
         printf("\n");
     }
-    vector<frame*> frame_table; //All the frames
-    queue<frame*> free_pool; //Free pool
-    int n; //Numbre of frames
+    frame* getFrameFromPool(){
+        if (free_pool.empty()){
+            return NULL;
+        }
+        frame* res = free_pool.front(); //Get front pt
+        free_pool.pop(); //Delete that first pt from queue
+        return res;
+    }
+    private:
+        vector<frame*> frame_table; //All the frames
+        queue<frame*> free_pool; //Free pool
+        int n; //Numbre of frames
 };
 
 // Class definitions
@@ -167,24 +196,28 @@ class randomNumberGenerator {
 };
 
 class Pager {
-    virtual frame* select_victim_frame() = 0; // virtual base class
+    public:
+        virtual frame* select_victim_frame() = 0; // virtual base class
+    private:
 };
 
-// frame* get_frame() {
-//     frame *frame = allocate_frame_from_free_list();
-//     if (frame == NULL) frame = THE_PAGER->select_victim_frame();
-//         return frame;
-// }
+
 
 //Global var
+aLotOfFrames* myFrames; //Pointer to my frames
+Pager* myPager; //Pointer to the pager algorithm
 
 //Function prototypes
-void simulation(); //Simulation
-
+frame* get_frame() {
+    frame *frame = myFrames->getFrameFromPool();
+    if (frame == NULL) { //No more empty frame
+        frame = myPager->select_victim_frame();
+    }
+    return frame;
+}
 int main(int argc, char* argv[]) {
     int c;
-    aLotOfFrames* myFrames; //Pointer to my frames
-    Pager* myPager; //Pointer to the pager algorithm
+
     while ((c = getopt(argc,argv,"f:a:o:")) != -1 )
     {   
         // ./mmu –f<num_frames> -a<algo> [-o<options>] -x -y -f -a inputfile randomfile
