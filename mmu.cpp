@@ -16,7 +16,6 @@ const int MAX_FRAMES = 128; //Supports up to 128 total possible physical frames
 
 //Flags
 char algo; //-a
-int num_frames; //-f
 int OFlag = 0; //-o
 int PFlag = 0;
 int FFlag = 0;
@@ -98,24 +97,58 @@ struct process { //procs
 };
 int process::count = 0; //Init the static count for pid
 
-struct frames {
-    frames(int num_frames){
-        for(int i = 0; i < num_frames; i++){
+struct aLotOfFrames {
+    aLotOfFrames(int num_frames) : n(num_frames) {
+        for(int i = 0; i < n; i++){
             frame* f = new frame();
             frame_table.push_back(f); //Add to total frame
             free_pool.push(f); //All initalized frame is free
         }
     }
-    ~frames(){ //Clean up
-        for(int i = 0; i < num_frames; i++){
+    ~aLotOfFrames(){ //Clean up
+        for(int i = 0; i < n; i++){
             delete frame_table[i];
         }
     }
+    void printFT(){
+        printf("FT: ");
+
+    }
     vector<frame*> frame_table; //All the frames
     queue<frame*> free_pool; //Free pool
+    int n; //Numbre of frames
 };
 
 // Class definitions
+class randomNumberGenerator {
+    public:
+        randomNumberGenerator(char* randomFile){
+            //Opening random value file
+            ifstream rfile(randomFile);
+            if (!rfile) {
+                cerr << "Could not open the rfile.\n";
+                exit(1);
+            }
+            int r; //Random int
+            rfile >> rsize; //Reading the size
+            while (rfile >> r) {
+                randvals.push_back(r); //Populating the random vector
+            }
+            rfile.close();
+        }
+        //The random function
+        int myrandom(int size) {
+            static int ofs = 0;
+            if (ofs >= randvals.size()) {
+                ofs = 0;
+            }
+            return randvals[ofs++] % size;
+        }
+    private:
+        vector<int> randvals; //Vector containg the random integers
+        int rsize;
+};
+
 class Pager {
     virtual frame* select_victim_frame() = 0; // virtual base class
 };
@@ -127,14 +160,13 @@ class Pager {
 // }
 
 //Global var
-vector<int> randvals; //Vector containg the random integers
 
 //Function prototypes
-int myrandom(int); //The random function
 void simulation(); //Simulation
 
 int main(int argc, char* argv[]) {
     int c;
+    aLotOfFrames* myFrames; //Pointer to my frames
     while ((c = getopt(argc,argv,"f:a:o:")) != -1 )
     {   
         // ./mmu –f<num_frames> -a<algo> [-o<options>] -x -y -f -a inputfile randomfile
@@ -142,11 +174,13 @@ int main(int argc, char* argv[]) {
         //Argument parsing
         switch(c) {
             case 'f':
+                int num_frames;
                 sscanf(optarg, "%d",&num_frames);
                 if (num_frames >= MAX_FRAMES) {
-                    cerr << "num_frames >= 128: " << num_frames << endl;;
+                    cerr << "num_frames[" << num_frames << "] >= 128" << endl;;
                     exit(1);
                 }
+                myFrames = new aLotOfFrames(num_frames);
                 break;
             case 'a': 
                 sscanf(optarg, "%c",&algo);
@@ -185,7 +219,7 @@ int main(int argc, char* argv[]) {
         }        
     }
     //Arguments statements
-    printf("frames[%d] algo[%c] O[%d] P[%d] F[%d] S[%d] x[%d] y[%d] f[%d] a[%d]\n", num_frames, algo, OFlag, PFlag, FFlag, SFlag, xFlag, yFlag, fFlag, aFlag);
+    // printf("frames[%d] algo[%c] O[%d] P[%d] F[%d] S[%d] x[%d] y[%d] f[%d] a[%d]\n", num_frames, algo, OFlag, PFlag, FFlag, SFlag, xFlag, yFlag, fFlag, aFlag);
 
     if ((argc - optind) < 2) { //optind is the index of current argument
         cerr << "Missing input file and rfile\n";
@@ -194,20 +228,13 @@ int main(int argc, char* argv[]) {
     //Gettng file names
     char* inputFile = argv[optind];
     char* randomFile = argv[optind+1];
-    printf("Input file: %s\trfile: %s\n",inputFile,randomFile);
+    // printf("Input file: %s\trfile: %s\n",inputFile,randomFile);
     
-    //Opening random value file
-    ifstream rfile(randomFile);
-    if (!rfile) {
-        cerr << "Could not open the rfile.\n";
-        exit(1);
-    }
-    int r, rsize; //Random int, and total random integer count
-    rfile >> rsize; //Reading the size
-    while (rfile >> r) {
-        randvals.push_back(r); //Populating the random vector
-    }
-    rfile.close();
+    //Opening random value file and creating random number generator
+    randomNumberGenerator rng(randomFile);
+    // for (int i = 0; i < 10010; i++){
+    //     cout << rng.myrandom(1) << endl;
+    // }
 
     //Opening input file
     ifstream ifile(inputFile);
@@ -268,13 +295,28 @@ int main(int argc, char* argv[]) {
         procList[i]->printProcess();
     }
 
+    int instCount = 1;
     while(getline(ifile, line)){ //Get Instructions
         if (line.empty() || line[0] == '#') {
             continue;
         }
         istringstream iss(line);
         iss >> inst >> instNum;
+        switch (inst) {
+            case 'c':
+                break;
+            case 'r':
+                break;
+            case 'w':
+                break;
+            case 'e':
+                break;
+            default:
+                cerr << "Invalid instruction." << endl;
+                exit(1);
+        }
         // printf("inst[%c] instNum[%d]\n", inst, instNum);
+        instCount += 1;
     }
 
     //Clean up
@@ -282,19 +324,12 @@ int main(int argc, char* argv[]) {
     for(size_t i = 0; i < procList.size(); i++){
         delete procList[i];
     }
+    delete myFrames;
 }
 
-//The random function
-int myrandom(int burst) {
-    static int ofs = 0;
-    if (ofs >= randvals.size()) {
-        ofs = 0;
-    }
-    return randvals[ofs++] % burst;
-}
+
 
 void simulation(){
-
     // while (get_next_instruction(&operation, &vpage)) {
     //     // handle special case of “c” and “e” instruction
     //     // now the real instructions for read and write
