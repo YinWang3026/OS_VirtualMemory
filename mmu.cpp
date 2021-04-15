@@ -15,28 +15,17 @@ using namespace std;
 const int MAX_VPAGES = 64; //Total virtual pages per process
 const int MAX_FRAMES = 128; //Supports up to 128 total possible physical frames
 
-//Flags
-int OFlag = 0;
-int PFlag = 0;
-int FFlag = 0;
-int SFlag = 0;
-int xFlag = 0;
-int yFlag = 0;
-int fFlag = 0;
-int aFlag = 0;
-
 //Macro definitions
 // #define vtrace(fmt...)  do { if (vFlag) { printf(fmt); fflush(stdout); } } while(0)
 
 //Structs
 struct pte{ //Page table entries - must be 32 bits
     pte(): valid(0),referenced(0), modified(0), writeProtected(0), 
-        pagedOut(0), frame(0), pte_id(0), file_mapped(0), frame_mapped(0), unused(0){}
+        pagedOut(0), frame(0), file_mapped(0), firstTime(0), unused(0){}
     
     void printPTE(){
         string s = "";
         if (valid == 1){
-            s += to_string(pte_id) + ":";
             if (referenced) { s+= "R"; } else { s+= "-"; }
             if (modified) { s+= "M"; } else { s+= "-"; }
             if (pagedOut) { s+= "S"; } else { s+= "-"; }
@@ -45,24 +34,17 @@ struct pte{ //Page table entries - must be 32 bits
             else { s+="*"; } //Invalid, not swap out
         }
         s += " ";
-        printf("%c", s.c_str());
+        printf("%s", s.c_str());
     }
-    void setID(int n){
-        if (n < 64){ //Max is 64
-            pte_id = n;
-        }
-    }
-    unsigned valid:1;
-    unsigned referenced:1;
-    unsigned modified:1;
-    unsigned writeProtected:1;
+    unsigned valid:1; //Am i mapped to a frame
+    unsigned referenced:1; //On read or write
+    unsigned modified:1; //On write
+    unsigned writeProtected:1; //Cannot write, can read
     unsigned pagedOut:1; //aka swapped out
     unsigned frame:7; //Max 128 = 7 bits
-    unsigned pte_id:6; //Max 64 = 6 bits
-    unsigned file_mapped:1;
-    unsigned frame_mapped:1;
-    // unsigned swap_area:9; //Max process = 8, 8*64 = 512 virtual pages total, 2^9 = 512
-    unsigned unused:12;
+    unsigned file_mapped:1; //Mapped to a file
+    unsigned firstTime:1; //First time to page fault?
+    unsigned unused:18;
 }; 
 
 //Need fix
@@ -80,7 +62,7 @@ struct frame { //Frame
     }
     int frameid; //id of this frame
     int pid; //Which process do I map to?
-    unsigned pte_id:6; //Which virtual addres do I map to?
+    unsigned pte_id:6; //Which virtual addres in the PID do i map to?
 }; 
 int frame::count = 0;
 
@@ -97,7 +79,7 @@ struct virtualMemoryArea { //VMA
             return false;
         }
     }
-    bool getProtected(){
+    bool getWriteProtected(){
         return write_protected;
     }
     bool getFileMapped(){
@@ -113,17 +95,36 @@ struct virtualMemoryArea { //VMA
 struct process {
     static int count;
     process(): pid(count++), unmaps(0), maps(0), ins(0), outs(0), 
-        fins(0), fouts(0), zeros(0), segv(0), segprot(0){
-        // for (int i = 0; i < MAX_VPAGES; i++){
-        //     page_table[i].setID(i);
-        // }
-    }
+        fins(0), fouts(0), zeros(0), segv(0), segprot(0){}
     void printProcessPageTable(){
         printf("PT[%d]: ",pid);
         for (int i = 0; i < MAX_VPAGES; i++){
+            printf("%d:",i);
             page_table[i].printPTE();
         }
         printf("\n");
+    }
+    bool inMyVMA(int pteNum) {
+        for (int i = 0; i < VAMList.size(); i++){
+            if (VAMList[i].checkRange(pteNum)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    bool getWriteProtection(int pteNum) {
+        for (int i = 0; i < VAMList.size(); i++){
+            if (VAMList[i].checkRange(pteNum)) {
+                return VAMList[i].getWriteProtected();
+            }
+        }
+    }
+    bool getFileMapped(int pteNum){
+        for (int i = 0; i < VAMList.size(); i++){
+            if (VAMList[i].checkRange(pteNum)) {
+                return VAMList[i].getFileMapped();
+            }
+        }
     }
     int pid, unmaps, maps, ins, outs, fins, fouts, zeros, segv, segprot;
     vector<virtualMemoryArea> VAMList; //virtual memory segments
@@ -159,55 +160,54 @@ struct aLotOfFrames {
         free_pool.pop(); //Delete that first pt from queue
         return res;
     }
+    void addFrameToPool(frame* f){
+        free_pool.push(f);
+    }
     private:
         vector<frame*> frame_table; //All the frames
         queue<frame*> free_pool; //Free pool
         int n; //Numbre of frames
 };
 
-// Class definitions
-class randomNumberGenerator {
-    public:
-        randomNumberGenerator(char* randomFile){
-            //Opening random value file
-            ifstream rfile(randomFile);
-            if (!rfile) {
-                cerr << "Could not open the rfile.\n";
-                exit(1);
-            }
-            int r; //Random int
-            rfile >> rsize; //Reading the size
-            while (rfile >> r) {
-                randvals.push_back(r); //Populating the random vector
-            }
-            rfile.close();
+struct randomNumberGenerator {
+    randomNumberGenerator(char* randomFile){
+        //Opening random value file
+        ifstream rfile(randomFile);
+        if (!rfile) {
+            cerr << "Error: Could not open the rfile.\n";
+            exit(1);
         }
-        //The random function
-        int myrandom(int size) {
-            static int ofs = 0;
-            if (ofs >= randvals.size()) {
-                ofs = 0;
-            }
-            return randvals[ofs++] % size;
+        int r; //Random int
+        rfile >> r; //Reading the size
+        while (rfile >> r) {
+            randvals.push_back(r); //Populating the random vector
         }
+        rfile.close();
+    }
+    //The random function
+    int myrandom(int size) {
+        static int ofs = 0;
+        if (ofs >= randvals.size()) {
+            ofs = 0;
+        }
+        return randvals[ofs++] % size;
+    }
     private:
         vector<int> randvals; //Vector containg the random integers
-        int rsize;
 };
 
+// Class definitions
 class Pager {
     public:
         virtual frame* select_victim_frame() = 0; // virtual base class
     private:
 };
 
-
-
 //Global var
 aLotOfFrames* myFrames; //Pointer to my frames
 Pager* myPager; //Pointer to the pager algorithm
 
-//Function prototypes
+//Functions
 frame* get_frame() {
     frame *frame = myFrames->getFrameFromPool();
     if (frame == NULL) { //No more empty frame
@@ -215,9 +215,18 @@ frame* get_frame() {
     }
     return frame;
 }
+
 int main(int argc, char* argv[]) {
     int c;
-
+    //Flags
+    int OFlag = 0;
+    int PFlag = 0;
+    int FFlag = 0;
+    int SFlag = 0;
+    int xFlag = 0;
+    int yFlag = 0;
+    int fFlag = 0;
+    int aFlag = 0;
     while ((c = getopt(argc,argv,"f:a:o:")) != -1 )
     {   
         // ./mmu –f<num_frames> -a<algo> [-o<options>] -x -y -f -a inputfile randomfile
@@ -228,7 +237,7 @@ int main(int argc, char* argv[]) {
                 int num_frames;
                 sscanf(optarg, "%d",&num_frames);
                 if (num_frames >= MAX_FRAMES) {
-                    cerr << "num_frames[" << num_frames << "] >= 128" << endl;;
+                    fprintf(__stderrp, "Error: num_frames[%d] >= 128\n", num_frames);
                     exit(1);
                 }
                 myFrames = new aLotOfFrames(num_frames);
@@ -250,7 +259,7 @@ int main(int argc, char* argv[]) {
                     case 'W':
                         break;
                     default:
-                        cerr << "Unknown algo." << endl;
+                        cerr << "Error: Unknown algo: " << algo << endl;
                         exit(1);
                 }
                 break;
@@ -282,6 +291,9 @@ int main(int argc, char* argv[]) {
                         case 'a': //Prints "aging" information during victim_selection, and after each instruction for complex algo
                             aFlag = 1;
                             break;
+                        default:
+                            cerr << "Error: Unknown option: " << optarg[i] << endl;
+                            exit(1);
                     }
                 }
                 break;
@@ -291,7 +303,7 @@ int main(int argc, char* argv[]) {
     // printf("frames[%d] algo[%c] O[%d] P[%d] F[%d] S[%d] x[%d] y[%d] f[%d] a[%d]\n", num_frames, algo, OFlag, PFlag, FFlag, SFlag, xFlag, yFlag, fFlag, aFlag);
 
     if ((argc - optind) < 2) { //optind is the index of current argument
-        cerr << "Missing input file and rfile\n";
+        cerr << "Error: Missing input file and rfile\n";
         exit(1);
     }
     //Gettng file names
@@ -308,7 +320,7 @@ int main(int argc, char* argv[]) {
     //Opening input file
     ifstream ifile(inputFile);
     if (!ifile) {
-        cerr << "Could not open the input file.\n";
+        cerr << "Error: Could not open the input file.\n";
         exit(1);
     }
     int nProcs, nVAM, start_vpage, end_vpage, write_protected, file_mapped, instNum;
@@ -326,7 +338,7 @@ int main(int argc, char* argv[]) {
     }
     // printf("nProc[%d]\n",nProcs);
     if (nProcs == 0) {
-        cerr << "No processes read in input file.\n";
+        cerr << "Error: No processes read in input file.\n";
         exit(1);
     }
     
@@ -364,25 +376,40 @@ int main(int argc, char* argv[]) {
     //     procList[i]->printProcess();
     // }
 
-    int instCount = 1;
+    int instCount = 0;
+    process* currentProcess = NULL;
     while(getline(ifile, line)){ //Get Instructions
         if (line.empty() || line[0] == '#') {
             continue;
         }
         istringstream iss(line);
         iss >> inst >> instNum;
-        switch (inst) {
-            case 'c':
-                break;
-            case 'r':
-                break;
-            case 'w':
-                break;
-            case 'e':
-                break;
-            default:
-                cerr << "Invalid instruction." << endl;
-                exit(1);
+        if (inst == 'c'){
+            currentProcess = procList[instNum];
+        } else if (inst == 'e'){
+            //Release all the frame on current process
+        } else if (inst == 'r' || inst == 'w'){
+            //instNum = pte index
+            pte* currentPte = &currentProcess->page_table[instNum];
+            if (currentPte->valid == 0){ //Page fault
+                //Verify this pte is valid in VMA
+                if (currentProcess->inMyVMA(instNum)) {
+                    frame* newFrame = get_frame();
+                    //UNMAP the old process on the frame
+                    //MAP the new process to the frame
+                } else {
+                    cerr << "Error: Pte not in VMA: " << instNum << endl;
+                    continue;
+                }
+            }
+            if (currentProcess->getWriteProtection(instNum)){
+                //Raise error
+            } else{
+
+            }
+        } else {
+            cerr << "Error: Invalid instruction: " << inst << endl;
+            exit(1);
         }
         // printf("inst[%c] instNum[%d]\n", inst, instNum);
         instCount += 1;
