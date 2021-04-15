@@ -21,16 +21,17 @@ const int MAX_FRAMES = 128; //Supports up to 128 total possible physical frames
 //Structs
 struct pte{ //Page table entries - must be 32 bits
     pte(): valid(0),referenced(0), modified(0), writeProtected(0), 
-        pagedOut(0), frame(0), file_mapped(0), firstTime(0), validVMA(0), unused(0){}
+        pagedOut(0), frame(0), fileMapped(0), initalized(0), validVMA(0), unused(0){}
     void printPTE(){
         string s = "";
         if (valid == 1){
+            s += to_string(pteid) + ":";
             if (referenced) { s+= "R"; } else { s+= "-"; }
             if (modified) { s+= "M"; } else { s+= "-"; }
             if (pagedOut) { s+= "S"; } else { s+= "-"; }
         } else{
             if (pagedOut) { s+= "#"; } //Invalid, swapped out
-            else if (file_mapped) { s+="*"; } //Invalid, not swap out
+            else if (fileMapped) { s+="*"; } //Invalid, not swap out
         }
         s += " ";
         printf("%s", s.c_str());
@@ -41,9 +42,10 @@ struct pte{ //Page table entries - must be 32 bits
     unsigned writeProtected:1; //Cannot write, can read
     unsigned pagedOut:1; //aka swapped out
     unsigned frame:7; //Max 128 = 7 bits
-    unsigned file_mapped:1; //Mapped to a file
-    unsigned firstTime:1; //First time to page fault?
+    unsigned fileMapped:1; //Mapped to a file
+    unsigned initalized:1; //First time to page fault?
     unsigned validVMA:1; //Exists in VMA
+    unsigned pteid:6; //Max 64 = 6 bits
     unsigned unused:18;
 }; 
 
@@ -60,18 +62,17 @@ struct frame { //Frame
             printf("%d:%d ", pid, pte_id);
         }
     }
-    string getStringFrame(){
-        return to_string(pid) + ":" + to_string(pte_id);
-    }
-    void unmapFromPte(){
-        pid = -1;
-        pte_id = 0;
-    }
-    void mapToPte(int p, int pteNum){
-        pid = p;
-        pte_id = pteNum;
-    }
-private:
+    // string getStringFrame(){
+    //     return to_string(pid) + ":" + to_string(pte_id);
+    // }
+    // void unmapFromPte(){
+    //     pid = -1;
+    //     pte_id = 0;
+    // }
+    // void mapToPte(int p, int pteNum){
+    //     pid = p;
+    //     pte_id = pteNum;
+    // }
     int frameid; //id of this frame
     int pid; //Which process do I map to?
     unsigned pte_id:6; //Which virtual addres in the PID do i map to?
@@ -107,34 +108,22 @@ struct process {
     void printProcessPageTable(){
         printf("PT[%d]: ",pid);
         for (int i = 0; i < MAX_VPAGES; i++){
-            printf("%d:",i);
             page_table[i].printPTE();
         }
         printf("\n");
     }
-    bool inMyVMA(int pteNum) {
+    bool initPTE(int pte_id){
         for (int i = 0; i < VAMList.size(); i++){
-            if (VAMList[i].checkRange(pteNum)) {
-                return true;
+            if (VAMList[i].checkRange(pte_id)) {
+                page_table[pte_id].writeProtected = VAMList[i].getWriteProtected();
+                page_table[pte_id].fileMapped = VAMList[i].getFileMapped();
+                page_table[pte_id].validVMA = 1;
+                page_table[pte_id].initalized = 1;
+                page_table[pte_id].pteid = pte_id;
+                return true; //Successfully init
             }
         }
-        return false;
-    }
-    bool getWriteProtection(int pteNum) {
-        for (int i = 0; i < VAMList.size(); i++){
-            if (VAMList[i].checkRange(pteNum)) {
-                return VAMList[i].getWriteProtected();
-            }
-        }
-        return false;
-    }
-    bool getFileMapped(int pteNum){
-        for (int i = 0; i < VAMList.size(); i++){
-            if (VAMList[i].checkRange(pteNum)) {
-                return VAMList[i].getFileMapped();
-            }
-        }
-        return false;
+        return false; //Failed to init, becaues this pte_id falls in a hole
     }
     int pid;
     unsigned long unmaps, maps, ins, outs, fins, fouts, zeros, segv, segprot;
@@ -223,7 +212,6 @@ public:
     }
 private:
 };
-
 
 //Functions
 frame* get_frame(Pager* myPager) {
@@ -408,19 +396,62 @@ int main(int argc, char* argv[]) {
             //Go through all the vpages
         } else if (inst == 'r' || inst == 'w'){
             //instNum = pte index
-            pte* currentPte = &currentProcess->page_table[instNum];
-            if (currentPte->valid == 0){ //Page fault
-                //Verify this pte is valid in VMA
-                if (currentProcess->inMyVMA(instNum)) {
-                    frame* newFrame = get_frame(myPager);
-                    //UNMAP the old process on the frame
-                    //MAP the new process to the frame
-                } else {
-                    //Accessing a hole
-                    Otrace("SEGV\n");
-                    currentProcess->segv += 1;
-                    continue;
+            pte* currentPte = &currentProcess->page_table[instNum]; //get the page entry
+            if (currentPte->valid == 0){ 
+                //Page fault                
+                if (currentPte->initalized == 0){
+                    //Initalize the PTE
+                    if (currentProcess->initPTE(instNum) == false) {
+                        //Cannot init pte, a hole
+                        Otrace(" SEGV\n");
+                        currentProcess->segv += 1;
+                        continue;
+                    }
                 }
+                frame* newFrame = get_frame(myPager);
+                //UNMAP
+                if (newFrame->pid != -1) {
+                    process* unmapProc = procList[newFrame->pid];
+                    int pte = newFrame->pte_id;
+                    Otrace(" UMAP %d:%d\n", unmapProc->pid, pte);
+                    unmapProc->unmaps += 1;
+                    unmapProc->page_table[pte].valid = 0;
+                    unmapProc->page_table[pte].frame = 0;
+                    //OUT/FOUT
+                    if (unmapProc->page_table[pte].modified == 1) {
+                        unmapProc->page_table[pte].pagedOut = 1;
+                        if (unmapProc->page_table[pte].fileMapped){
+                            Otrace(" FOUT\n");
+                            unmapProc->fouts += 1;
+                        } else {
+                            Otrace(" OUT\n");
+                            unmapProc->outs += 1;
+                        }
+                    }
+                }
+                //IN/FIN
+                if (currentPte->pagedOut == 1){
+                    if (currentPte->fileMapped){
+                        Otrace(" FIN\n");
+                        currentProcess->fins += 1;
+                    } else {
+                        Otrace(" IN\n");
+                        currentProcess->ins += 1;
+                    }
+                } else if (currentPte->pagedOut == 0 && currentPte->fileMapped == 0){
+                    //ZERO
+                    Otrace(" ZERO\n");
+                    currentProcess->zeros += 1;
+                }
+                //MAP
+                Otrace(" MAP %d\n", newFrame->frameid);
+                currentProcess->maps += 1;
+                currentPte->valid = 1;
+                currentPte->modified = 0;
+                currentPte->referenced = 0;
+                currentPte->frame = newFrame->frameid;
+                newFrame->pid = currentProcess->pid;
+                newFrame->pte_id = currentPte->pteid;
             }
             //At this point, PTE should be set up.
             currentPte->referenced = 1; //Read or write triggers referenced
@@ -428,7 +459,7 @@ int main(int argc, char* argv[]) {
                 //Write instruction
                 if (currentPte->writeProtected == 1) {
                     //No write
-                    Otrace("SEGVPROT\n");
+                    Otrace(" SEGVPROT\n");
                     currentProcess->segprot += 1;
                 } else {
                     //Read and write
