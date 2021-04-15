@@ -31,7 +31,7 @@ struct pte{ //Page table entries - must be 32 bits
             if (pagedOut) { s+= "S"; } else { s+= "-"; }
         } else{
             if (pagedOut) { s+= "#"; } //Invalid, swapped out
-            else { s+="*"; } //Invalid, not swap out
+            else if (file_mapped) { s+="*"; } //Invalid, not swap out
         }
         s += " ";
         printf("%s", s.c_str());
@@ -60,6 +60,15 @@ struct frame { //Frame
             printf("%d:%d ", pid, pte_id);
         }
     }
+    void unmapFromPte(){
+        pid = -1;
+        pte_id = 0;
+    }
+    void mapToPte(int p, int pteNum){
+        pid = p;
+        pte_id = pteNum;
+    }
+private:
     int frameid; //id of this frame
     int pid; //Which process do I map to?
     unsigned pte_id:6; //Which virtual addres in the PID do i map to?
@@ -74,11 +83,6 @@ struct virtualMemoryArea { //VMA
     }
     bool checkRange(int x){
         return (start_vpage <= x && x <= end_vpage) ? true :  false;
-        // if (start_vpage <= x && x <= end_vpage){
-        //     return true;
-        // } else {
-        //     return false;
-        // }
     }
     bool getWriteProtected(){
         return write_protected;
@@ -86,11 +90,11 @@ struct virtualMemoryArea { //VMA
     bool getFileMapped(){
         return file_mapped;
     }
-    private:
-        int start_vpage;
-        int end_vpage;
-        bool write_protected;
-        bool file_mapped;
+private:
+    int start_vpage;
+    int end_vpage;
+    bool write_protected;
+    bool file_mapped;
 };
 
 struct process {
@@ -119,6 +123,7 @@ struct process {
                 return VAMList[i].getWriteProtected();
             }
         }
+        return false;
     }
     bool getFileMapped(int pteNum){
         for (int i = 0; i < VAMList.size(); i++){
@@ -126,6 +131,7 @@ struct process {
                 return VAMList[i].getFileMapped();
             }
         }
+        return false;
     }
     int pid;
     unsigned long unmaps, maps, ins, outs, fins, fouts, zeros, segv, segprot;
@@ -165,10 +171,10 @@ struct aLotOfFrames {
     void addFrameToPool(frame* f){
         free_pool.push(f);
     }
-    private:
-        vector<frame*> frame_table; //All the frames
-        queue<frame*> free_pool; //Free pool
-        int n; //Numbre of frames
+private:
+    vector<frame*> frame_table; //All the frames
+    queue<frame*> free_pool; //Free pool
+    int n; //Numbre of frames
 };
 
 struct randomNumberGenerator {
@@ -198,19 +204,26 @@ struct randomNumberGenerator {
         vector<int> randvals; //Vector containg the random integers
 };
 
+//Global frames
+aLotOfFrames* myFrames; //Pointer to my frames
+
 // Class definitions
 class Pager {
-    public:
-        virtual frame* select_victim_frame() = 0; // virtual base class
-    private:
+public:
+    virtual frame* select_victim_frame() = 0; // virtual base class
+private:
 };
 
-//Global var
-aLotOfFrames* myFrames; //Pointer to my frames
-Pager* myPager; //Pointer to the pager algorithm
+class FIFO : public Pager {
+public:
+    frame* select_victim_frame(){
+    }
+private:
+};
+
 
 //Functions
-frame* get_frame() {
+frame* get_frame(Pager* myPager) {
     frame *frame = myFrames->getFrameFromPool();
     if (frame == NULL) { //No more empty frame
         frame = myPager->select_victim_frame();
@@ -229,6 +242,8 @@ int main(int argc, char* argv[]) {
     int yFlag = 0;
     int fFlag = 0;
     int aFlag = 0;
+    Pager* myPager; //Pointer to the pager algorithm
+
     while ((c = getopt(argc,argv,"f:a:o:")) != -1 )
     {   
         // ./mmu –f<num_frames> -a<algo> [-o<options>] -x -y -f -a inputfile randomfile
@@ -249,6 +264,7 @@ int main(int argc, char* argv[]) {
                 sscanf(optarg, "%c",&algo);
                 switch (algo) {
                     case 'F':
+                        myPager = new FIFO();
                         break;
                     case 'R':
                         break;
@@ -384,20 +400,25 @@ int main(int argc, char* argv[]) {
         }
         istringstream iss(line);
         iss >> inst >> instNum;
+        if (OFlag) {
+            //Output flag
+            printf("%lu: ==> %c %d\n", instCount, inst, instNum);
+        }
         if (inst == 'c'){
+            //instNum = pid
             ctxSwitches += 1;
             currentProcess = procList[instNum];
         } else if (inst == 'e'){
-            processExits += 1;
             //Release all the frame on current process
-
+            processExits += 1;
+            //Go through all the vpages
         } else if (inst == 'r' || inst == 'w'){
             //instNum = pte index
             pte* currentPte = &currentProcess->page_table[instNum];
             if (currentPte->valid == 0){ //Page fault
                 //Verify this pte is valid in VMA
                 if (currentProcess->inMyVMA(instNum)) {
-                    frame* newFrame = get_frame();
+                    frame* newFrame = get_frame(myPager);
                     //UNMAP the old process on the frame
                     //MAP the new process to the frame
                 } else {
@@ -468,26 +489,3 @@ int main(int argc, char* argv[]) {
     delete myFrames;
     delete myPager;
 }
-
-
-
-void simulation(){
-    // while (get_next_instruction(&operation, &vpage)) {
-    //     // handle special case of “c” and “e” instruction
-    //     // now the real instructions for read and write
-    //     pte_t *pte = &current_process.page_table[vpage];// in reality this is done by hardware
-    //     if ( ! pte->present) {
-    //         // this in reality generates the page fault exception and now you execute // verify this is actually a valid page in a vma if not raise error and next inst
-    //         frame_t *newframe = get_frame();
-    //         //-> figure out if/what to do with old frame if it was mapped
-    //         // see general outline in MM-slides under Lab3 header
-    //         // see whether and how to bring in the content of the access page.
-    //     }
-    //     // check write protection
-    //     // simulate instruction execution by hardware by updating the R/M PTE bits update_pte(read/modify) bits based on operations.
-    // }
-}
-
-
-
-
