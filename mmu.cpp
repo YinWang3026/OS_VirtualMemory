@@ -14,7 +14,15 @@ using namespace std;
 //Global Constants
 const int MAX_VPAGES = 64; //Total virtual pages per process
 const int MAX_FRAMES = 128; //Supports up to 128 total possible physical frames
-
+//Flags
+int OFlag = 0;
+int PFlag = 0;
+int FFlag = 0;
+int SFlag = 0;
+int xFlag = 0;
+int yFlag = 0;
+int fFlag = 0;
+int aFlag = 0;
 //Macro definitions
 #define Otrace(fmt...)  do { if (OFlag) { printf(fmt); fflush(stdout); } } while(0)
 
@@ -62,17 +70,6 @@ struct frame { //Frame
             printf("%d:%d ", pid, pte_id);
         }
     }
-    // string getStringFrame(){
-    //     return to_string(pid) + ":" + to_string(pte_id);
-    // }
-    // void unmapFromPte(){
-    //     pid = -1;
-    //     pte_id = 0;
-    // }
-    // void mapToPte(int p, int pteNum){
-    //     pid = p;
-    //     pte_id = pteNum;
-    // }
     int frameid; //id of this frame
     int pid; //Which process do I map to?
     unsigned pte_id:6; //Which virtual addres in the PID do i map to?
@@ -117,7 +114,6 @@ struct process {
             if (VAMList[i].checkRange(pte_id)) {
                 page_table[pte_id].writeProtected = VAMList[i].getWriteProtected();
                 page_table[pte_id].fileMapped = VAMList[i].getFileMapped();
-                // page_table[pte_id].validVMA = 1;
                 page_table[pte_id].initalized = 1;
                 page_table[pte_id].pteid = pte_id;
                 return true; //Successfully init
@@ -213,6 +209,9 @@ public:
         if (currentHead == myFrames->n){
             currentHead = 0;
         }
+        if (aFlag) {
+            printf("ASELECT %d\n", currentHead);
+        }
         return myFrames->frame_table[currentHead++];
     }
 private:
@@ -230,15 +229,6 @@ frame* get_frame(Pager* myPager) {
 
 int main(int argc, char* argv[]) {
     int c;
-    //Flags
-    int OFlag = 0;
-    int PFlag = 0;
-    int FFlag = 0;
-    int SFlag = 0;
-    int xFlag = 0;
-    int yFlag = 0;
-    int fFlag = 0;
-    int aFlag = 0;
     Pager* myPager; //Pointer to the pager algorithm
 
     while ((c = getopt(argc,argv,"f:a:o:")) != -1 )
@@ -424,29 +414,30 @@ int main(int argc, char* argv[]) {
                     int pte = newFrame->pte_id;
                     Otrace(" UNMAP %d:%d\n", unmapProc->pid, pte);
                     unmapProc->unmaps += 1;
+                    //Unmap
                     unmapProc->page_table[pte].valid = 0;
                     unmapProc->page_table[pte].frame = 0;
                     //OUT/FOUT
                     if (unmapProc->page_table[pte].modified == 1) {
-                        unmapProc->page_table[pte].pagedOut = 1;
                         if (unmapProc->page_table[pte].fileMapped){
                             Otrace(" FOUT\n");
                             unmapProc->fouts += 1;
                         } else {
                             Otrace(" OUT\n");
                             unmapProc->outs += 1;
+                            unmapProc->page_table[pte].pagedOut = 1; //only page out for non-file mapped
                         }
                     }
                 }
                 //IN/FIN
-                if (currentPte->pagedOut == 1){
-                    if (currentPte->fileMapped){
-                        Otrace(" FIN\n");
-                        currentProcess->fins += 1;
-                    } else {
-                        Otrace(" IN\n");
-                        currentProcess->ins += 1;
-                    }
+                if (currentPte->fileMapped){
+                    //Bring file in
+                    Otrace(" FIN\n");
+                    currentProcess->fins += 1;
+                } else if (currentPte->pagedOut == 1){
+                    //Bring in from swap device
+                    Otrace(" IN\n");
+                    currentProcess->ins += 1;
                 } else if (currentPte->pagedOut == 0 && currentPte->fileMapped == 0){
                     //ZERO
                     Otrace(" ZERO\n");
@@ -455,10 +446,12 @@ int main(int argc, char* argv[]) {
                 //MAP
                 Otrace(" MAP %d\n", newFrame->frameid);
                 currentProcess->maps += 1;
+                //Update PTE
                 currentPte->valid = 1;
                 currentPte->modified = 0;
                 currentPte->referenced = 0;
                 currentPte->frame = newFrame->frameid;
+                //Update PTE in frame
                 newFrame->pid = currentProcess->pid;
                 newFrame->pte_id = currentPte->pteid;
             }
@@ -468,7 +461,7 @@ int main(int argc, char* argv[]) {
                 //Write instruction
                 if (currentPte->writeProtected == 1) {
                     //No write
-                    Otrace(" SEGVPROT\n");
+                    Otrace(" SEGPROT\n");
                     currentProcess->segprot += 1;
                 } else {
                     //Read and write
