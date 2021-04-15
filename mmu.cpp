@@ -29,9 +29,10 @@ struct pte{ //Page table entries - must be 32 bits
             if (referenced) { s+= "R"; } else { s+= "-"; }
             if (modified) { s+= "M"; } else { s+= "-"; }
             if (pagedOut) { s+= "S"; } else { s+= "-"; }
-        } else{
-            if (pagedOut) { s+= "#"; } //Invalid, swapped out
-            else if (fileMapped) { s+="*"; } //Invalid, not swap out
+        } else {
+            //Invalid
+            if (pagedOut) { s+= "#"; } //Paged out, has swap area
+            else if (fileMapped || !pagedOut) { s+= "*"; } //File mapped and not paged out, no swap area
         }
         s += " ";
         printf("%s", s.c_str());
@@ -44,7 +45,6 @@ struct pte{ //Page table entries - must be 32 bits
     unsigned frame:7; //Max 128 = 7 bits
     unsigned fileMapped:1; //Mapped to a file
     unsigned initalized:1; //First time to page fault?
-    // unsigned validVMA:1; //Exists in VMA
     unsigned pteid:6; //Max 64 = 6 bits
     unsigned unused:12;
 }; 
@@ -201,6 +201,7 @@ aLotOfFrames* myFrames; //Pointer to my frames
 // Class definitions
 class Pager {
 public:
+    virtual ~Pager() {}
     virtual frame* select_victim_frame() = 0; // virtual base class
 private:
 };
@@ -209,6 +210,9 @@ class FIFO : public Pager {
 public:
     FIFO() : currentHead(0) {}
     frame* select_victim_frame(){
+        if (currentHead == myFrames->n){
+            currentHead = 0;
+        }
         return myFrames->frame_table[currentHead++];
     }
 private:
@@ -256,7 +260,7 @@ int main(int argc, char* argv[]) {
                 char algo;
                 sscanf(optarg, "%c",&algo);
                 switch (algo) {
-                    case 'F':
+                    case 'f':
                         myPager = new FIFO();
                         break;
                     case 'R':
@@ -295,6 +299,7 @@ int main(int argc, char* argv[]) {
                             break;
                         case 'y': //Prints the page table of all processes after each instruction
                             yFlag = 1;
+                            xFlag = 0;
                             break;
                         case 'f': //Prints the frame table after each instruction
                             fFlag = 1;
@@ -388,10 +393,12 @@ int main(int argc, char* argv[]) {
             //Output flag
             printf("%lu: ==> %c %d\n", instCount, inst, instNum);
         }
+        instCount += 1;
         if (inst == 'c'){
             //instNum = pid
             ctxSwitches += 1;
             currentProcess = procList[instNum];
+            continue;
         } else if (inst == 'e'){
             //Release all the frame on current process
             processExits += 1;
@@ -468,13 +475,10 @@ int main(int argc, char* argv[]) {
                     currentPte->modified = 1;
                 }
             }
-           
         } else {
             cerr << "Error: Invalid instruction: " << inst << endl;
             exit(1);
         }
-        instCount += 1;
-
         //Debug information
         if (xFlag) {
             //Print the current process page table
@@ -515,7 +519,7 @@ int main(int argc, char* argv[]) {
                 p->pid, p->unmaps, p->maps, p->ins, p->outs, p->fins, p->fouts, p->zeros,
                 p->segv, p->segprot);
         }
-        cost += instCount + ctxSwitches*130 + processExits*1250;
+        cost += (instCount-ctxSwitches) + ctxSwitches*130 + processExits*1250;
         printf("TOTALCOST %lu %lu %lu %llu %lu\n", instCount, ctxSwitches, processExits, cost, sizeof(pte));
     }
 
