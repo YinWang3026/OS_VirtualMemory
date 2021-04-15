@@ -73,11 +73,12 @@ struct virtualMemoryArea { //VMA
         printf("start[%d] end[%d] write_pro[%d] file_map[%d]\n", start_vpage,end_vpage, write_protected, file_mapped);
     }
     bool checkRange(int x){
-        if (start_vpage <= x && x <= end_vpage){
-            return true;
-        } else {
-            return false;
-        }
+        return (start_vpage <= x && x <= end_vpage) ? true :  false;
+        // if (start_vpage <= x && x <= end_vpage){
+        //     return true;
+        // } else {
+        //     return false;
+        // }
     }
     bool getWriteProtected(){
         return write_protected;
@@ -126,7 +127,8 @@ struct process {
             }
         }
     }
-    int pid, unmaps, maps, ins, outs, fins, fouts, zeros, segv, segprot;
+    int pid;
+    unsigned long unmaps, maps, ins, outs, fins, fouts, zeros, segv, segprot;
     vector<virtualMemoryArea> VAMList; //virtual memory segments
     pte page_table[MAX_VPAGES]; // a per process array of fixed size=64 of pte_t not pte_t pointers !
 };
@@ -366,17 +368,15 @@ int main(int argc, char* argv[]) {
             iss >> start_vpage >> end_vpage >> write_protected >> file_mapped; //VAMs
             virtualMemoryArea aVAM = virtualMemoryArea(start_vpage, end_vpage, write_protected, file_mapped);
             temp->VAMList.push_back(aVAM); //Adding VAM to proc
-            // printf("start[%d] end[%d] write_p[%d] file_mapped[%d]\n",start_vpage,end_vpage,write_protected,file_mapped);
             j++;
         }
         i++;
     }  
-    //Print Process List
-    // for(size_t i = 0; i < procList.size(); i++){
-    //     procList[i]->printProcess();
-    // }
-
-    int instCount = 0;
+    
+    //Simulation
+    unsigned long instCount = 0;
+    unsigned long ctxSwitches = 0;
+    unsigned long processExits = 0;
     process* currentProcess = NULL;
     while(getline(ifile, line)){ //Get Instructions
         if (line.empty() || line[0] == '#') {
@@ -385,9 +385,12 @@ int main(int argc, char* argv[]) {
         istringstream iss(line);
         iss >> inst >> instNum;
         if (inst == 'c'){
+            ctxSwitches += 1;
             currentProcess = procList[instNum];
         } else if (inst == 'e'){
+            processExits += 1;
             //Release all the frame on current process
+
         } else if (inst == 'r' || inst == 'w'){
             //instNum = pte index
             pte* currentPte = &currentProcess->page_table[instNum];
@@ -411,8 +414,50 @@ int main(int argc, char* argv[]) {
             cerr << "Error: Invalid instruction: " << inst << endl;
             exit(1);
         }
-        // printf("inst[%c] instNum[%d]\n", inst, instNum);
         instCount += 1;
+
+        //Debug information
+        if (xFlag) {
+            //Print the current process page table
+            currentProcess->printProcessPageTable();
+        }
+        if (yFlag) {
+            //Print the page table for all processes
+            for (int i = 0; i < procList.size(); i++){
+                procList[i]->printProcessPageTable();
+            }
+        }
+        if (fFlag) {
+            //Print the frame table
+            myFrames->printFT();
+        }
+        if (aFlag) {
+            //Aging information
+        }
+    }
+    if (PFlag) {
+        for (int i = 0; i < procList.size(); i++){
+            //Print the page table for every process
+            procList[i]->printProcessPageTable();
+        }
+    }
+    if (FFlag) {
+        //Print the state of the frame table
+        myFrames->printFT();
+    }
+    if (SFlag) {
+        //Summary
+        unsigned long long cost = 0;
+        for (int i = 0; i < procList.size(); i++){
+            process* p = procList[i];
+            cost += p->unmaps*400 + p->maps*300 + p->ins*3100 + p->outs*2700 + p->fins*2800
+                + p->fouts*2400 + p->zeros*140 + p->segv*340 + p->segprot*420;
+            printf("PROC[%d]: U=%lu M=%lu I=%lu O=%lu FI=%lu FO=%lu Z=%lu SV=%lu SP=%lu\n",
+                p->pid, p->unmaps, p->maps, p->ins, p->outs, p->fins, p->fouts, p->zeros,
+                p->segv, p->segprot);
+        }
+        cost += instCount + ctxSwitches*130 + processExits*1250;
+        printf("TOTALCOST %lu %lu %lu %llu %lu\n", instCount, ctxSwitches, processExits, cost, sizeof(pte));
     }
 
     //Clean up
