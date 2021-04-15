@@ -180,7 +180,7 @@ struct aLotOfFrames {
 private:
     vector<frame*> frame_table; //All the frames
     queue<frame*> free_pool; //Free pool
-    int n; //Numbre of frames
+    int n; //Number of frames
 };
 
 // Class definitions
@@ -226,6 +226,16 @@ private:
     int currentHead;
 };
 
+class RANDOM : public Pager {
+public:
+    RANDOM(){}
+    frame* select_victim_frame(){
+        int random = myrandom(myFrames->getSize());
+        atrace("ASELECT %d\n", random);
+        return myFrames->getFrame(random);
+    }
+};
+
 int main(int argc, char* argv[]) {
     int c;
     while ((c = getopt(argc,argv,"f:a:o:")) != -1 )
@@ -248,7 +258,8 @@ int main(int argc, char* argv[]) {
                     case 'f':
                         myPager = new FIFO();
                         break;
-                    case 'R':
+                    case 'r':
+                        myPager = new RANDOM();
                         break;
                     case 'C':
                         break;
