@@ -16,13 +16,12 @@ const int MAX_VPAGES = 64; //Total virtual pages per process
 const int MAX_FRAMES = 128; //Supports up to 128 total possible physical frames
 
 //Macro definitions
-// #define vtrace(fmt...)  do { if (vFlag) { printf(fmt); fflush(stdout); } } while(0)
+#define Otrace(fmt...)  do { if (OFlag) { printf(fmt); fflush(stdout); } } while(0)
 
 //Structs
 struct pte{ //Page table entries - must be 32 bits
     pte(): valid(0),referenced(0), modified(0), writeProtected(0), 
-        pagedOut(0), frame(0), file_mapped(0), firstTime(0), unused(0){}
-    
+        pagedOut(0), frame(0), file_mapped(0), firstTime(0), validVMA(0), unused(0){}
     void printPTE(){
         string s = "";
         if (valid == 1){
@@ -36,7 +35,7 @@ struct pte{ //Page table entries - must be 32 bits
         s += " ";
         printf("%s", s.c_str());
     }
-    unsigned valid:1; //Am i mapped to a frame
+    unsigned valid:1; //Am i mapped to a frame, translation exists
     unsigned referenced:1; //On read or write
     unsigned modified:1; //On write
     unsigned writeProtected:1; //Cannot write, can read
@@ -44,6 +43,7 @@ struct pte{ //Page table entries - must be 32 bits
     unsigned frame:7; //Max 128 = 7 bits
     unsigned file_mapped:1; //Mapped to a file
     unsigned firstTime:1; //First time to page fault?
+    unsigned validVMA:1; //Exists in VMA
     unsigned unused:18;
 }; 
 
@@ -59,6 +59,9 @@ struct frame { //Frame
         } else{
             printf("%d:%d ", pid, pte_id);
         }
+    }
+    string getStringFrame(){
+        return to_string(pid) + ":" + to_string(pte_id);
     }
     void unmapFromPte(){
         pid = -1;
@@ -345,11 +348,10 @@ int main(int argc, char* argv[]) {
     char inst;
     string line;
 
+    //Reading processes
     nProcs = 0;
     while(getline(ifile, line)){
-        if (line.empty() || line[0] == '#') {
-            continue; //Ignoring empty and # lines
-        }
+        if (line.empty() || line[0] == '#') continue; //Ignoring empty and # lines
         istringstream iss(line);
         iss >> nProcs; //number of procs
         break;
@@ -364,22 +366,16 @@ int main(int argc, char* argv[]) {
     vector<process*> procList; //Holding all procs
     while (i < nProcs){
         getline(ifile, line);
-        if (line.empty() || line[0] == '#') {
-            continue;
-        }
-
+        if (line.empty() || line[0] == '#') continue;
         process* temp = new process(); //Creating a process
         procList.push_back(temp); //Adding process to list
-
         istringstream iss(line);
         iss >> nVAM; //number of VAM
         // printf("nVAM[%d]\n",nVAM);
         int j = 0;
         while (j < nVAM) {
             getline(ifile, line);
-            if (line.empty() || line[0] == '#') {
-                continue;
-            }
+            if (line.empty() || line[0] == '#') continue;
             istringstream iss(line);
             iss >> start_vpage >> end_vpage >> write_protected >> file_mapped; //VAMs
             virtualMemoryArea aVAM = virtualMemoryArea(start_vpage, end_vpage, write_protected, file_mapped);
@@ -389,15 +385,13 @@ int main(int argc, char* argv[]) {
         i++;
     }  
     
-    //Simulation
+    //Reading instructions / Simulation
     unsigned long instCount = 0;
     unsigned long ctxSwitches = 0;
     unsigned long processExits = 0;
     process* currentProcess = NULL;
     while(getline(ifile, line)){ //Get Instructions
-        if (line.empty() || line[0] == '#') {
-            continue;
-        }
+        if (line.empty() || line[0] == '#') continue;
         istringstream iss(line);
         iss >> inst >> instNum;
         if (OFlag) {
@@ -422,15 +416,26 @@ int main(int argc, char* argv[]) {
                     //UNMAP the old process on the frame
                     //MAP the new process to the frame
                 } else {
-                    cerr << "Error: Pte not in VMA: " << instNum << endl;
+                    //Accessing a hole
+                    Otrace("SEGV\n");
+                    currentProcess->segv += 1;
                     continue;
                 }
             }
-            if (currentProcess->getWriteProtection(instNum)){
-                //Raise error
-            } else{
-
+            //At this point, PTE should be set up.
+            currentPte->referenced = 1; //Read or write triggers referenced
+            if (inst == 'w') {
+                //Write instruction
+                if (currentPte->writeProtected == 1) {
+                    //No write
+                    Otrace("SEGVPROT\n");
+                    currentProcess->segprot += 1;
+                } else {
+                    //Read and write
+                    currentPte->modified = 1;
+                }
             }
+           
         } else {
             cerr << "Error: Invalid instruction: " << inst << endl;
             exit(1);
