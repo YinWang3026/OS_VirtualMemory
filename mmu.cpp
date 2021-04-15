@@ -45,6 +45,17 @@ struct pte{ //Page table entries - must be 32 bits
         s += " ";
         printf("%s", s.c_str());
     }
+    void clearAllBits(){
+        valid = 0;
+        referenced = 0;
+        modified = 0;
+        writeProtected = 0;
+        pagedOut = 0;
+        frame = 0;
+        fileMapped = 0;
+        initalized = 0;
+        pteid = 0;
+    }
     unsigned valid:1; //Am i mapped to a frame, translation exists
     unsigned referenced:1; //On read or write
     unsigned modified:1; //On write
@@ -156,9 +167,13 @@ struct aLotOfFrames {
         free_pool.pop(); //Delete that first pt from queue
         return res;
     }
+    frame* getFrame(int x){
+        return frame_table[x];
+    }
     void addFrameToPool(frame* f){
         free_pool.push(f);
     }
+
     vector<frame*> frame_table; //All the frames
     queue<frame*> free_pool; //Free pool
     int n; //Numbre of frames
@@ -391,8 +406,31 @@ int main(int argc, char* argv[]) {
             continue;
         } else if (inst == 'e'){
             //Release all the frame on current process
+            Otrace("EXIT current process %d\n", currentProcess->pid);
             processExits += 1;
             //Go through all the vpages
+            for(int i = 0; i < MAX_VPAGES; i++){
+                //Found a valid page
+                pte* currentPTE = &currentProcess->page_table[i];
+                if (currentPTE->valid){
+                    //UNMAP
+                    //Reset the frame
+                    frame* currentFrame = myFrames->getFrame(currentPTE->frame);
+                    Otrace(" UNMAP %d:%d\n", currentFrame->pid, currentFrame->pte_id);
+                    currentProcess->unmaps += 1;
+                    currentFrame->pid = -1;
+                    currentFrame->pte_id = 0;
+                    myFrames->addFrameToPool(currentFrame);
+                    //FOUT - modified and filemapped
+                    if (currentPTE->modified && currentPTE->fileMapped){
+                        Otrace(" FOUT\n");
+                        currentProcess->fouts += 1;
+                    }
+                }
+                //Reset the PTE
+                currentPTE->clearAllBits();
+            }
+            continue;
         } else if (inst == 'r' || inst == 'w'){
             //instNum = pte index
             pte* currentPte = &currentProcess->page_table[instNum]; //get the page entry
@@ -412,7 +450,8 @@ int main(int argc, char* argv[]) {
                 if (newFrame->pid != -1) {
                     process* unmapProc = procList[newFrame->pid];
                     int pte = newFrame->pte_id;
-                    Otrace(" UNMAP %d:%d\n", unmapProc->pid, pte);
+                    int pid = newFrame->pid;
+                    Otrace(" UNMAP %d:%d\n", pid, pte);
                     unmapProc->unmaps += 1;
                     //Unmap
                     unmapProc->page_table[pte].valid = 0;
@@ -512,7 +551,7 @@ int main(int argc, char* argv[]) {
                 p->pid, p->unmaps, p->maps, p->ins, p->outs, p->fins, p->fouts, p->zeros,
                 p->segv, p->segprot);
         }
-        cost += (instCount-ctxSwitches) + ctxSwitches*130 + processExits*1250;
+        cost += (instCount-ctxSwitches-processExits) + ctxSwitches*130 + processExits*1250;
         printf("TOTALCOST %lu %lu %lu %llu %lu\n", instCount, ctxSwitches, processExits, cost, sizeof(pte));
     }
 
