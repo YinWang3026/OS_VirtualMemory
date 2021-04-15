@@ -21,7 +21,7 @@ const int MAX_FRAMES = 128; //Supports up to 128 total possible physical frames
 //Structs
 struct pte{ //Page table entries - must be 32 bits
     pte(): valid(0),referenced(0), modified(0), writeProtected(0), 
-        pagedOut(0), frame(0), fileMapped(0), initalized(0), validVMA(0), unused(0){}
+        pagedOut(0), frame(0), fileMapped(0), initalized(0), unused(0){}
     void printPTE(){
         string s = "";
         if (valid == 1){
@@ -44,9 +44,9 @@ struct pte{ //Page table entries - must be 32 bits
     unsigned frame:7; //Max 128 = 7 bits
     unsigned fileMapped:1; //Mapped to a file
     unsigned initalized:1; //First time to page fault?
-    unsigned validVMA:1; //Exists in VMA
+    // unsigned validVMA:1; //Exists in VMA
     unsigned pteid:6; //Max 64 = 6 bits
-    unsigned unused:18;
+    unsigned unused:12;
 }; 
 
 //Need fix
@@ -117,7 +117,7 @@ struct process {
             if (VAMList[i].checkRange(pte_id)) {
                 page_table[pte_id].writeProtected = VAMList[i].getWriteProtected();
                 page_table[pte_id].fileMapped = VAMList[i].getFileMapped();
-                page_table[pte_id].validVMA = 1;
+                // page_table[pte_id].validVMA = 1;
                 page_table[pte_id].initalized = 1;
                 page_table[pte_id].pteid = pte_id;
                 return true; //Successfully init
@@ -163,7 +163,6 @@ struct aLotOfFrames {
     void addFrameToPool(frame* f){
         free_pool.push(f);
     }
-private:
     vector<frame*> frame_table; //All the frames
     queue<frame*> free_pool; //Free pool
     int n; //Numbre of frames
@@ -208,9 +207,12 @@ private:
 
 class FIFO : public Pager {
 public:
+    FIFO() : currentHead(0) {}
     frame* select_victim_frame(){
+        return myFrames->frame_table[currentHead++];
     }
 private:
+    int currentHead;
 };
 
 //Functions
@@ -413,7 +415,7 @@ int main(int argc, char* argv[]) {
                 if (newFrame->pid != -1) {
                     process* unmapProc = procList[newFrame->pid];
                     int pte = newFrame->pte_id;
-                    Otrace(" UMAP %d:%d\n", unmapProc->pid, pte);
+                    Otrace(" UNMAP %d:%d\n", unmapProc->pid, pte);
                     unmapProc->unmaps += 1;
                     unmapProc->page_table[pte].valid = 0;
                     unmapProc->page_table[pte].frame = 0;
