@@ -97,8 +97,9 @@ struct virtualMemoryArea { //VMA
     void printVMA(){
         printf("start[%d] end[%d] write_pro[%d] file_map[%d]\n", start_vpage,end_vpage, write_protected, file_mapped);
     }
+    //Checks if given pte is in VMA
     bool checkRange(int x){
-        return (start_vpage <= x && x <= end_vpage) ? true :  false;
+        return (start_vpage <= x && x <= end_vpage) ? true : false;
     }
     bool getWriteProtected(){
         return write_protected;
@@ -124,6 +125,7 @@ struct process {
         }
         printf("\n");
     }
+    //Inits a PTE
     bool initPTE(int pte_id){
         for (int i = 0; i < VAMList.size(); i++){
             if (VAMList[i].checkRange(pte_id)) {
@@ -191,7 +193,7 @@ class Pager {
 public:
     virtual ~Pager() {}
     virtual frame* select_victim_frame() = 0; // virtual base class
-    virtual void setAgeZero(frame* f){
+    virtual void setAgeZero(frame* f){ //Aging algo
         return;
     }
 private:
@@ -272,7 +274,7 @@ private:
 
 class NRU : public Pager {
 public:
-    NRU():classes(4,NULL), timer(0), hand(0) {}
+    NRU(): classes(4,NULL), timer(0), hand(0) {}
     frame* select_victim_frame(){
         bool reset = (instCount - timer >= 50) ? 1 : 0; //Reset every 50 inst
         if (reset) { timer = instCount; } //Mark reset time
@@ -290,7 +292,7 @@ public:
                 classes[c] = temp;
                 smallestC = min(c, smallestC);
             }
-            if(reset) { //Reset
+            if(reset) { //Reset reference bit
                 temp->pteptr->referenced = 0;
             }
             if (c == 0 && reset == 0) { //Found smallest
@@ -316,7 +318,7 @@ class AGE : public Pager {
 public:
     AGE(): hand(0) {}
     frame* select_victim_frame(){
-        unsigned int smallest = 0xFFFFFFFF;
+        unsigned int smallest = 0xFFFFFFFF; //Set to max
         int start = hand % myFrames->getSize();
         int end = (hand-1+myFrames->getSize()) % myFrames->getSize();
         frame* result;
@@ -324,13 +326,13 @@ public:
         for (int counter = 0; counter < myFrames->getSize(); counter++){
             if (hand >= myFrames->getSize()){ hand = 0; }
             frame* temp = myFrames->getFrame(hand);
-            temp->age = temp->age >> 1;
-            if (temp->pteptr->referenced == 1){
+            temp->age = temp->age >> 1; //Shift age
+            if (temp->pteptr->referenced == 1){ //If ref'ed, set first bit to 1
                 temp->age = (temp->age | 0x80000000);
                 temp->pteptr->referenced = 0; //Reset reference to zero
             }
             atrace("%d:%04X ", temp->frameid, temp->age); //4 Byte hex
-            if (temp->age < smallest){
+            if (temp->age < smallest){ //Finding smallest in the round
                 smallest = temp->age;
                 result = temp;
             }
@@ -368,13 +370,13 @@ public:
                 temp->pteptr->referenced = 0; //Reset r
                 temp->long_age = currentTime; //Record current time
             } else if (refBit == 0){
-                //Threshold and clean
+                //Threshold
                 if ((currentTime - temp->long_age) >= 50){
                     result = temp;
                     atrace("STOP(%d) ", counter+1);
                     break;
                 }
-                //Always finding the oldest non refed 
+                //Always finding the oldest non ref'ed 
                 if (temp->long_age < smallestTime){
                     smallestTime = temp->long_age;
                     oldest = temp;
@@ -469,8 +471,6 @@ int main(int argc, char* argv[]) {
                 break;
         }        
     }
-    //Arguments statements
-    // printf("frames[%d] algo[%c] O[%d] P[%d] F[%d] S[%d] x[%d] y[%d] f[%d] a[%d]\n", num_frames, algo, OFlag, PFlag, FFlag, SFlag, xFlag, yFlag, fFlag, aFlag);
     if ((argc - optind) < 2) { //optind is the index of current argument
         cerr << "Error: Missing input file and rfile\n";
         exit(1);
@@ -479,7 +479,6 @@ int main(int argc, char* argv[]) {
     //Gettng file names
     char* inputFile = argv[optind];
     char* randomFile = argv[optind+1];
-    // printf("Input file: %s\trfile: %s\n",inputFile,randomFile);
     
     //Opening random value file and creating random number generator
     ifstream rfile(randomFile);
@@ -500,6 +499,7 @@ int main(int argc, char* argv[]) {
         cerr << "Error: Could not open the input file.\n";
         exit(1);
     }
+
     //Reading processes
     int nProcs = 0;
     string line;
@@ -514,6 +514,7 @@ int main(int argc, char* argv[]) {
         exit(1);
     }
     
+    //Reading VMAs
     int i = 0;
     int nVAM, start_vpage, end_vpage, write_protected, file_mapped;
     vector<process*> procList; //Holding all procs
@@ -680,9 +681,6 @@ int main(int argc, char* argv[]) {
         if (fFlag) {
             //Print the frame table
             myFrames->printFT();
-        }
-        if (aFlag) {
-            //Aging information
         }
     }
     if (PFlag) {
