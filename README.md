@@ -1,4 +1,4 @@
-Implements the MMU for converting virtual memory to physical memory
+Implements the MMU for converting virtual memory segments/pages to physical frame
 make mmu - compile
-./mmu - run
+./mmu –f<num_frames> -a<algo> [-o<OPFSxfya>] inputfile randomfile
 make clean - remove compiled files

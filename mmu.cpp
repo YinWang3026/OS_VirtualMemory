@@ -73,7 +73,7 @@ struct pte{ //Page table entries - must be 32 bits
 
 struct frame { //Frame
     static int count;
-    frame(): frameid(count++), pid(-1), pteptr(NULL), age(0) {}
+    frame(): frameid(count++), pid(-1), pteptr(NULL), age(0), long_age(0) {}
     void printFrame(){
         //<pid:virtual page>
         //* if not currently mapped by a virtual page
@@ -87,6 +87,7 @@ struct frame { //Frame
     int pid; //Which process do I map to?
     pte* pteptr; //Which virtual addres in the PID do i map to?
     unsigned int age; //For aging algo
+    unsigned long long_age; //For workset algo
 }; 
 int frame::count = 0;
 
@@ -222,14 +223,14 @@ int myrandom(int size) {
 //Pagers
 class FIFO : public Pager {
 public:
-    FIFO() : currentHead(0) {}
+    FIFO() : hand(0) {}
     frame* select_victim_frame(){
-        if (currentHead >= myFrames->getSize()){ currentHead = 0; }
-        atrace("ASELECT %d\n", currentHead);
-        return myFrames->getFrame(currentHead++);
+        if (hand >= myFrames->getSize()){ hand = 0; }
+        atrace("ASELECT %d\n", hand);
+        return myFrames->getFrame(hand++);
     }
 private:
-    int currentHead;
+    int hand;
 };
 
 class RANDOM : public Pager {
@@ -246,19 +247,14 @@ class CLOCK : public Pager {
 public:
     CLOCK() : hand(0) {}
     frame* select_victim_frame(){
-        int counter = 1;
+        int counter = 0;
         int startingPosition = (hand < myFrames->getSize()) ? hand : 0;
-        while (1){
+        while (counter < myFrames->getSize()+1){
             if (hand >= myFrames->getSize()){ hand = 0; }
             pte* temp = myFrames->getFrame(hand)->pteptr;
-            if (temp == NULL){
-                //Invalid frame, in case
-                counter+=1;
-                hand+=1;
-                continue;
-            }
             if (temp->referenced == 0) {
                 //Found
+                counter+=1;
                 break;
             } else {
                 //Set zero and move on
@@ -320,13 +316,12 @@ class AGE : public Pager {
 public:
     AGE(): hand(0) {}
     frame* select_victim_frame(){
-        int counter = 0;
         unsigned int smallest = 0xFFFFFFFF;
-        int start = hand;
-        int end = (hand+1+myFrames->getSize()) % myFrames->getSize();
+        int start = hand % myFrames->getSize();
+        int end = (hand-1+myFrames->getSize()) % myFrames->getSize();
         frame* result;
         atrace("ASELECT %d-%d | ", start, end);
-        for (counter = 0; counter < myFrames->getSize(); counter++){
+        for (int counter = 0; counter < myFrames->getSize(); counter++){
             if (hand >= myFrames->getSize()){ hand = 0; }
             frame* temp = myFrames->getFrame(hand);
             temp->age = temp->age >> 1;
@@ -334,7 +329,7 @@ public:
                 temp->age = (temp->age | 0x80000000);
                 temp->pteptr->referenced = 0; //Reset reference to zero
             }
-            atrace("%d:%04X ", temp->frameid, temp->age);
+            atrace("%d:%04X ", temp->frameid, temp->age); //4 Byte hex
             if (temp->age < smallest){
                 smallest = temp->age;
                 result = temp;
@@ -354,10 +349,46 @@ private:
 
 class WKSET : public Pager {
 public:
-    WKSET(){}
+    WKSET(): hand(0) {}
     frame* select_victim_frame(){
-
+        int start = hand % myFrames->getSize();
+        int end = (hand-1+myFrames->getSize()) % myFrames->getSize();
+        unsigned long currentTime = instCount - 1;
+        unsigned long smallestTime = currentTime + 10; //Largest time so far
+        frame* result = NULL;
+        frame* oldest = myFrames->getFrame(hand);
+        atrace("ASELECT %d-%d | ", start, end);
+        for (int counter = 0; counter < myFrames->getSize(); counter++){
+            if (hand >= myFrames->getSize()){ hand = 0; }
+            frame* temp = myFrames->getFrame(hand);
+            int refBit = temp->pteptr->referenced;
+            int modBit = temp->pteptr->modified;
+            atrace("%d(%d %d:%d %lu) ", temp->frameid, refBit, temp->pid, temp->pteptr->pteid, temp->long_age);
+            if (refBit == 1){
+                temp->pteptr->referenced = 0; //Reset r
+                temp->long_age = currentTime; //Record current time
+            } else if (refBit == 0){
+                //Threshold and clean
+                if (currentTime - temp->long_age >= 50 && modBit == 0){
+                    result = temp;
+                    atrace("STOP(%d) ", result->frameid);
+                    break;
+                }
+                //Always finding the oldest non refed 
+                if (temp->long_age < smallestTime){
+                    smallestTime = temp->long_age;
+                    oldest = temp;
+                }
+            }
+            hand += 1;
+        }
+        if (result == NULL) { result = oldest; }
+        atrace("| %d\n", result->frameid);
+        hand = result->frameid + 1;
+        return result;
     }
+private:
+    int hand;
 };
 
 int main(int argc, char* argv[]) {
@@ -615,6 +646,7 @@ int main(int argc, char* argv[]) {
                 //Update PTE in frame
                 newFrame->pid = currentProcess->pid;
                 newFrame->pteptr = currentPte;
+                newFrame->long_age = instCount-1; //Workset algo
                 myPager->setAgeZero(newFrame); //Aging algo
             }
             //At this point, PTE should be set up.
