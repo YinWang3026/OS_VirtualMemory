@@ -91,12 +91,12 @@ struct frame { //Frame
         if (pid == -1){
             printf("* ");
         } else{
-            printf("%d:%d ", pid, apte.pteid);
+            printf("%d:%d ", pid, pteptr->pteid);
         }
     }
     int frameid; //id of this frame
     int pid; //Which process do I map to?
-    pte apte; //Which virtual addres in the PID do i map to?
+    pte* pteptr; //Which virtual addres in the PID do i map to?
 }; 
 int frame::count = 0;
 
@@ -250,22 +250,27 @@ public:
 
 class CLOCK : public Pager {
 public:
-    CLOCK() : currentHead(0) {}
+    CLOCK() : hand(0) {}
     frame* select_victim_frame(){
-        int counter = 0;
-        int startingPosition = currentHead;
-        bool referenced = myFrames->getFrame(currentHead)->apte.referenced;
-        while (referenced){
-            counter++;
-            currentHead++;
-            if (currentHead+counter >= myFrames->getSize()){ currentHead = 0; }
-            referenced = myFrames->getFrame(currentHead)->apte.referenced;
+        int counter = 1;
+        int startingPosition = (hand < myFrames->getSize()) ? hand : 0;
+        while (1){
+            if (hand >= myFrames->getSize()){ hand = 0; }
+            pte* temp = myFrames->getFrame(hand)->pteptr;
+            // printf("Ref[%d]\n",temp->referenced);
+            if (temp->referenced == 0) {
+                break;
+            } else {
+                temp->referenced = 0;
+                hand++;
+                counter++;
+            }
         }
-        atrace("ASELECT: %d %d\n", startingPosition, counter);
-        return myFrames->getFrame(currentHead);
+        atrace("ASELECT %d %d\n", startingPosition, counter);
+        return myFrames->getFrame(hand++);
     }
 private:
-    int currentHead;
+    int hand;
 };
 
 int main(int argc, char* argv[]) {
@@ -444,10 +449,10 @@ int main(int argc, char* argv[]) {
                     //UNMAP
                     //Reset the frame
                     frame* currentFrame = myFrames->getFrame(currentPTE->frame);
-                    Otrace(" UNMAP %d:%d\n", currentFrame->pid, currentFrame->apte.pteid);
+                    Otrace(" UNMAP %d:%d\n", currentFrame->pid, currentFrame->pteptr->pteid);
                     currentProcess->unmaps += 1;
                     currentFrame->pid = -1;
-                    currentFrame->apte.clearAllBits();
+                    currentFrame->pteptr = NULL;
                     myFrames->addFrameToPool(currentFrame);
                     //FOUT - modified and filemapped
                     if (currentPTE->modified && currentPTE->fileMapped){
@@ -477,7 +482,7 @@ int main(int argc, char* argv[]) {
                 //UNMAP
                 if (newFrame->pid != -1) {
                     process* unmapProc = procList[newFrame->pid];
-                    int pte = newFrame->apte.pteid;
+                    int pte = newFrame->pteptr->pteid;
                     int pid = newFrame->pid;
                     Otrace(" UNMAP %d:%d\n", pid, pte);
                     unmapProc->unmaps += 1;
@@ -520,7 +525,7 @@ int main(int argc, char* argv[]) {
                 currentPte->frame = newFrame->frameid;
                 //Update PTE in frame
                 newFrame->pid = currentProcess->pid;
-                newFrame->apte.copy(currentPte);
+                newFrame->pteptr = currentPte;
             }
             //At this point, PTE should be set up.
             currentPte->referenced = 1; //Read or write triggers referenced
