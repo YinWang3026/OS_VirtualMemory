@@ -59,17 +59,6 @@ struct pte{ //Page table entries - must be 32 bits
         initalized = 0;
         pteid = 0;
     }
-    void copy(pte* rhs){
-        valid = rhs->valid;
-        referenced = rhs->referenced;
-        modified = rhs->modified;
-        writeProtected = rhs->writeProtected;
-        pagedOut = rhs->pagedOut;
-        frame = rhs->frame;
-        fileMapped = rhs->fileMapped;
-        initalized = rhs->initalized;
-        pteid = rhs->pteid;
-    }
     unsigned valid:1; //Am i mapped to a frame, translation exists
     unsigned referenced:1; //On read or write
     unsigned modified:1; //On write
@@ -84,7 +73,7 @@ struct pte{ //Page table entries - must be 32 bits
 
 struct frame { //Frame
     static int count;
-    frame(): frameid(count++), pid(-1) {}
+    frame(): frameid(count++), pid(-1), pteptr(NULL), age(0) {}
     void printFrame(){
         //<pid:virtual page>
         //* if not currently mapped by a virtual page
@@ -97,6 +86,7 @@ struct frame { //Frame
     int frameid; //id of this frame
     int pid; //Which process do I map to?
     pte* pteptr; //Which virtual addres in the PID do i map to?
+    unsigned int age; //For aging algo
 }; 
 int frame::count = 0;
 
@@ -200,6 +190,9 @@ class Pager {
 public:
     virtual ~Pager() {}
     virtual frame* select_victim_frame() = 0; // virtual base class
+    virtual void setAgeZero(frame* f){
+        return;
+    }
 private:
 };
 
@@ -260,8 +253,8 @@ public:
             pte* temp = myFrames->getFrame(hand)->pteptr;
             if (temp == NULL){
                 //Invalid frame, in case
-                counter++;
-                hand++;
+                counter+=1;
+                hand+=1;
                 continue;
             }
             if (temp->referenced == 0) {
@@ -270,8 +263,8 @@ public:
             } else {
                 //Set zero and move on
                 temp->referenced = 0;
-                hand++;
-                counter++;
+                hand+=1;
+                counter+=1;
             }
         }
         atrace("ASELECT %d %d\n", startingPosition, counter);
@@ -325,10 +318,38 @@ private:
 
 class AGE : public Pager {
 public:
-    AGE(){}
+    AGE(): hand(0) {}
     frame* select_victim_frame(){
-
+        int counter = 0;
+        unsigned int smallest = 0xFFFFFFFF;
+        int start = hand;
+        int end = (hand+1+myFrames->getSize()) % myFrames->getSize();
+        frame* result;
+        atrace("ASELECT %d-%d | ", start, end);
+        for (counter = 0; counter < myFrames->getSize(); counter++){
+            if (hand >= myFrames->getSize()){ hand = 0; }
+            frame* temp = myFrames->getFrame(hand);
+            temp->age = temp->age >> 1;
+            if (temp->pteptr->referenced == 1){
+                temp->age = (temp->age | 0x80000000);
+                temp->pteptr->referenced = 0; //Reset reference to zero
+            }
+            atrace("%d:%04X ", temp->frameid, temp->age);
+            if (temp->age < smallest){
+                smallest = temp->age;
+                result = temp;
+            }
+            hand += 1;
+        }
+        atrace("| %d\n", result->frameid);
+        hand = result->frameid + 1;
+        return result;
     }
+    void setAgeZero(frame* f){
+        f->age = 0;
+    }
+private:
+    int hand;
 };
 
 class WKSET : public Pager {
@@ -594,6 +615,7 @@ int main(int argc, char* argv[]) {
                 //Update PTE in frame
                 newFrame->pid = currentProcess->pid;
                 newFrame->pteptr = currentPte;
+                myPager->setAgeZero(newFrame); //Aging algo
             }
             //At this point, PTE should be set up.
             currentPte->referenced = 1; //Read or write triggers referenced
