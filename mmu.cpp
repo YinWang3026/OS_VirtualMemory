@@ -207,6 +207,7 @@ private:
 aLotOfFrames* myFrames; //Pointer to my frames
 vector<int> randvals; //Vector containg the random integers
 Pager* myPager; //Pointer to the pager algorithm
+unsigned long instCount = 0; //Artificial timer
 
 //Functions
 frame* get_frame() {
@@ -257,10 +258,17 @@ public:
         while (1){
             if (hand >= myFrames->getSize()){ hand = 0; }
             pte* temp = myFrames->getFrame(hand)->pteptr;
-            // printf("Ref[%d]\n",temp->referenced);
+            if (temp == NULL){
+                //Invalid frame, in case
+                counter++;
+                hand++;
+                continue;
+            }
             if (temp->referenced == 0) {
+                //Found
                 break;
             } else {
+                //Set zero and move on
                 temp->referenced = 0;
                 hand++;
                 counter++;
@@ -271,6 +279,64 @@ public:
     }
 private:
     int hand;
+};
+
+class NRU : public Pager {
+public:
+    NRU():classes(4,NULL), timer(0), hand(0) {}
+    frame* select_victim_frame(){
+        bool reset = (instCount - timer >= 50) ? 1 : 0; //Reset every 50 inst
+        if (reset) { timer = instCount; } //Mark reset time
+        for (int i = 0; i < classes.size(); i++){
+            classes[i] = NULL; //Reset all class
+        }
+        atrace("ASELECT: hand=%d %d ", hand, reset);
+        int count = 0;
+        int smallestC = 5; // 2 bits = 3 is max
+        while(count < myFrames->getSize()){
+            if (hand >= myFrames->getSize()){ hand = 0; }
+            frame* temp = myFrames->getFrame(hand);
+            int c = 2*temp->pteptr->referenced + temp->pteptr->modified;
+            if (classes[c] == NULL){ //First encounter
+                classes[c] = temp;
+                smallestC = min(c, smallestC);
+            }
+            if(reset) { //Reset
+                temp->pteptr->referenced = 0;
+            }
+            if (c == 0 && reset == 0) { //Found smallest
+                hand += 1;
+                count += 1;
+                break;
+            }
+            hand += 1;
+            count += 1;
+        }
+        hand = classes[smallestC]->frameid;
+        atrace("| %d %d %d\n", smallestC, hand, count);
+        hand += 1;
+        return classes[smallestC];
+    }
+private:
+    vector<frame*> classes;
+    unsigned long timer;
+    int hand;
+};
+
+class AGE : public Pager {
+public:
+    AGE(){}
+    frame* select_victim_frame(){
+
+    }
+};
+
+class WKSET : public Pager {
+public:
+    WKSET(){}
+    frame* select_victim_frame(){
+
+    }
 };
 
 int main(int argc, char* argv[]) {
@@ -301,11 +367,14 @@ int main(int argc, char* argv[]) {
                     case 'c':
                         myPager = new CLOCK();
                         break;
-                    case 'E':
+                    case 'e':
+                        myPager = new NRU();
                         break;
-                    case 'A':
+                    case 'a':
+                        myPager = new AGE();
                         break;
-                    case 'W':
+                    case 'w':
+                        myPager = new WKSET();
                         break;
                     default:
                         cerr << "Error: Unknown algo: " << algo << endl;
@@ -417,7 +486,6 @@ int main(int argc, char* argv[]) {
     }  
     
     //Reading instructions / Simulation
-    unsigned long instCount = 0;
     unsigned long ctxSwitches = 0;
     unsigned long processExits = 0;
     process* currentProcess = NULL;
