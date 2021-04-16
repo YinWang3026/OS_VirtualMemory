@@ -354,24 +354,24 @@ public:
         int start = hand % myFrames->getSize();
         int end = (hand-1+myFrames->getSize()) % myFrames->getSize();
         unsigned long currentTime = instCount - 1;
-        unsigned long smallestTime = currentTime + 10; //Largest time so far
+        unsigned long smallestTime = currentTime; //Largest time so far
         frame* result = NULL;
-        frame* oldest = myFrames->getFrame(hand);
+        frame* oldest = myFrames->getFrame(hand); //Whatever at hand is first choice
         atrace("ASELECT %d-%d | ", start, end);
+        // atrace("ASELECT %d %d-%d | ", currentTime, start, end);
         for (int counter = 0; counter < myFrames->getSize(); counter++){
             if (hand >= myFrames->getSize()){ hand = 0; }
             frame* temp = myFrames->getFrame(hand);
             int refBit = temp->pteptr->referenced;
-            int modBit = temp->pteptr->modified;
             atrace("%d(%d %d:%d %lu) ", temp->frameid, refBit, temp->pid, temp->pteptr->pteid, temp->long_age);
             if (refBit == 1){
                 temp->pteptr->referenced = 0; //Reset r
                 temp->long_age = currentTime; //Record current time
             } else if (refBit == 0){
                 //Threshold and clean
-                if (currentTime - temp->long_age >= 50 && modBit == 0){
+                if ((currentTime - temp->long_age) >= 50){
                     result = temp;
-                    atrace("STOP(%d) ", result->frameid);
+                    atrace("STOP(%d) ", counter+1);
                     break;
                 }
                 //Always finding the oldest non refed 
