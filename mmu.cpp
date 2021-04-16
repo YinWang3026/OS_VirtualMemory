@@ -127,7 +127,7 @@ struct process {
     }
     //Inits a PTE
     bool initPTE(int pte_id){
-        for (int i = 0; i < VAMList.size(); i++){
+        for (size_t i = 0; i < VAMList.size(); i++){
             if (VAMList[i].checkRange(pte_id)) {
                 page_table[pte_id].writeProtected = VAMList[i].getWriteProtected();
                 page_table[pte_id].fileMapped = VAMList[i].getFileMapped();
@@ -215,7 +215,7 @@ frame* get_frame() {
 }
 //The random function
 int myrandom(int size) {
-    static int ofs = 0;
+    static unsigned int ofs = 0;
     if (ofs >= randvals.size()) {
         ofs = 0;
     }
@@ -278,7 +278,7 @@ public:
     frame* select_victim_frame(){
         bool reset = (instCount - timer >= 50) ? 1 : 0; //Reset every 50 inst
         if (reset) { timer = instCount; } //Mark reset time
-        for (int i = 0; i < classes.size(); i++){
+        for (size_t i = 0; i < classes.size(); i++){
             classes[i] = NULL; //Reset all class
         }
         atrace("ASELECT: hand=%d %d ", hand, reset);
@@ -403,7 +403,7 @@ int main(int argc, char* argv[]) {
                 int num_frames;
                 sscanf(optarg, "%d",&num_frames);
                 if (num_frames >= MAX_FRAMES) {
-                    fprintf(__stderrp, "Error: num_frames[%d] >= 128\n", num_frames);
+                    cerr << "Error: num_frames[" << num_frames << "] >= 128\n";
                     exit(1);
                 }
                 myFrames = new aLotOfFrames(num_frames);
@@ -674,7 +674,7 @@ int main(int argc, char* argv[]) {
         }
         if (yFlag) {
             //Print the page table for all processes
-            for (int i = 0; i < procList.size(); i++){
+            for (size_t i = 0; i < procList.size(); i++){
                 procList[i]->printProcessPageTable();
             }
         }
@@ -684,7 +684,7 @@ int main(int argc, char* argv[]) {
         }
     }
     if (PFlag) {
-        for (int i = 0; i < procList.size(); i++){
+        for (size_t i = 0; i < procList.size(); i++){
             //Print the page table for every process
             procList[i]->printProcessPageTable();
         }
@@ -696,7 +696,7 @@ int main(int argc, char* argv[]) {
     if (SFlag) {
         //Summary
         unsigned long long cost = 0;
-        for (int i = 0; i < procList.size(); i++){
+        for (size_t i = 0; i < procList.size(); i++){
             process* p = procList[i];
             cost += p->unmaps*400 + p->maps*300 + p->ins*3100 + p->outs*2700 + p->fins*2800
                 + p->fouts*2400 + p->zeros*140 + p->segv*340 + p->segprot*420;
