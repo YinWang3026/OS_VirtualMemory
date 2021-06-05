@@ -1,5 +1,5 @@
 # Memory Management Unit
-Virtual memory is used by the Operating System to efficiently and fairly share limited physical memory among multiple running processes. Here, different polices of selecting the physical memory to dealloc and alloc to a process is simulated using Object Oriented Programming. The polices simulated are FIFO (First In First Out), Random, Clock, Enhanced Second Chance, Aging, and Working Set. The program reads the processes, the instructions, and runs until all processes exits. The results of each policy is displayed at the end.
+Virtual memory is used by the Operating System to efficiently and fairly share limited physical memory among multiple running processes. Here, different policies of selecting the physical memory to dealloc and alloc to a process is simulated using Object Oriented Programming. The policies simulated are FIFO (First In First Out), Random, Clock, Enhanced Second Chance, Aging, and Working Set. The program reads the processes, the instructions, and runs until all processes exits. The results of each policy is displayed at the end.
 
 ## Running the Program
 1. Compile the cpp file with the Makefile
