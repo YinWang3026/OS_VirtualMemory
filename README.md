@@ -3,7 +3,7 @@ Virtual memory is used by the Operating System to efficiently and fairly share l
 
 ## Running the Program
 1. Compile the cpp file with the Makefile
-2. ./mmu –f< num_frames > -a< algo > [-o< OPFSxfya >] inputfile randomfile
+2. ./mmu –f< num_frames > -a< algo > [-o< OPFSxfya >] [inputfile] [randomfile]
 
 - The -OPFS flags are optional flags that prints the states of page table entries and physical frames
 - The -xfya flags are optional flags for more runtime information
