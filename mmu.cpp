@@ -1,4 +1,3 @@
-//yw2178
 #include <iostream> //cout
 #include <fstream> //ifstream
 #include <sstream> //String stream
